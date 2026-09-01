@@ -72,12 +72,14 @@
       .day { width: 56px; min-width: 56px; max-width: 56px; }
     }
     @media print {
-      @page { size: A4 landscape; margin: 4mm; }
-      html, body { width: 100% !important; min-width: 0 !important; margin: 0 !important; background: #fff !important; }
+      @page { size: 297mm 210mm; margin: 4mm; }
+      @page moodLandscape { size: 297mm 210mm; margin: 4mm; }
+      html, body { width: 289mm !important; min-width: 289mm !important; max-width: 289mm !important; margin: 0 !important; background: #fff !important; }
+      body { page: moodLandscape; }
       header { padding: 0 0 3mm !important; border: 0 !important; background: #fff !important; }
-      h1 { margin: 0 0 2mm !important; padding: 0 !important; font-size: 14px !important; line-height: 1.1 !important; }
+      h1 { margin: 0 0 2mm !important; padding: 0 !important; font-size: 16px !important; line-height: 1.1 !important; }
       .period { gap: 3mm !important; flex-wrap: nowrap !important; }
-      .period label, .period select { font-size: 9px !important; }
+      .period label, .period select { font-size: 10px !important; }
       .period input, .period select { height: 22px !important; padding: 1px 4px !important; border-radius: 3px !important; }
       .period input { width: 76px !important; }
       .period input.year { width: 46px !important; }
@@ -100,26 +102,26 @@
         break-inside: avoid-page !important;
       }
       th, td {
-        height: 52px !important;
+        height: 56px !important;
         min-width: 0 !important;
         max-width: none !important;
         padding: 1px !important;
-        font-size: 7px !important;
+        font-size: 8.5px !important;
         line-height: 1.08 !important;
         overflow: hidden !important;
         page-break-inside: avoid !important;
         break-inside: avoid !important;
       }
-      thead th { height: 22px !important; font-size: 8px !important; }
+      thead th { height: 24px !important; font-size: 9px !important; }
       .row-label, thead .row-label {
         position: static !important;
         left: auto !important;
         z-index: auto !important;
-        width: 96px !important;
-        min-width: 96px !important;
-        max-width: 96px !important;
+        width: 102px !important;
+        min-width: 102px !important;
+        max-width: 102px !important;
         padding: 2px 3px !important;
-        font-size: 7px !important;
+        font-size: 8.5px !important;
         overflow: visible !important;
       }
       .score, thead .score {
@@ -129,16 +131,16 @@
         width: 20px !important;
         min-width: 20px !important;
         max-width: 20px !important;
-        font-size: 7px !important;
+        font-size: 8px !important;
       }
       .day {
-        width: calc((100% - 116px) / 31) !important;
+        width: calc((100% - 122px) / 31) !important;
         min-width: 0 !important;
         max-width: none !important;
       }
-      .cross { min-height: 12px !important; font-size: 14px !important; line-height: .9 !important; }
-      .note { margin-top: 1px !important; padding: 0 !important; font-size: 5.5px !important; line-height: 1.05 !important; overflow: visible !important; }
-      .sleep-input { width: 100% !important; height: 24px !important; padding: 0 !important; font-size: 8px !important; }
+      .cross { min-height: 14px !important; font-size: 16px !important; line-height: .9 !important; }
+      .note { margin-top: 1px !important; padding: 0 !important; font-size: 6.5px !important; line-height: 1.05 !important; overflow: visible !important; }
+      .sleep-input { width: 100% !important; height: 26px !important; padding: 0 !important; font-size: 9px !important; }
     }
   </style>
 </head>
@@ -173,7 +175,7 @@
     </div>
     <div class="save-status" id="saveStatus" role="status" aria-live="polite"></div>
     <div class="author"><span id="authorLabel">Автор</span>: KoreNat</div>
-    <div class="version">v.1.2-print</div>
+    <div class="version">v.1.3-landscape</div>
   </footer>
   <div class="overlay" id="overlay" hidden>
     <section class="editor" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
