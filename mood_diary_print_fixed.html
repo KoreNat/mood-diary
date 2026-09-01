@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; frame-src 'none'; media-src 'none'; font-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>График настроения</title>
+  <style>
+    * { box-sizing: border-box; }
+    :root { --label-width: 152px; --score-width: 38px; --grid: rgba(60,60,67,.16); --seam: rgba(60,60,67,.28); color-scheme: light; }
+    html { background: #f5f5f7; color: #1d1d1f; font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 0; min-width: 280px; background: #f5f5f7; color: #1d1d1f; }
+    header { position: relative; padding: 28px 16px 22px; border-bottom: 1px solid #d2d2d7; background: rgba(255,255,255,.86); }
+    h1 { margin: 0 0 18px; padding: 0 54px; font-size: 28px; line-height: 1.1; text-align: center; font-weight: 600; letter-spacing: -.025em; }
+    .period { display: flex; justify-content: center; align-items: center; gap: 12px 18px; flex-wrap: wrap; }
+    .period label { display: flex; align-items: center; gap: 8px; color: #6e6e73; font-size: 15px; font-weight: 500; }
+    .period input { width: 118px; height: 40px; border: 1px solid #c7c7cc; border-radius: 10px; padding: 5px 10px; background: #fff; color: #1d1d1f; font: inherit; box-shadow: inset 0 1px 1px rgba(0,0,0,.03); }
+    .period input.year { width: 78px; }
+    .period select { height: 40px; border: 1px solid #c7c7cc; border-radius: 10px; padding: 5px 30px 5px 10px; background: #fff; color: #1d1d1f; font: inherit; }
+    .table-wrap { width: calc(100% - 24px); margin: 14px auto 0; overflow: auto; border: 1px solid #d2d2d7; border-radius: 16px; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.045); -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+    table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; background: #fff; }
+    th, td { height: 58px; padding: 3px; border-right: 1px solid var(--grid); border-bottom: 1px solid var(--grid); background: #fff; color: #1d1d1f; text-align: center; vertical-align: middle; }
+    tr:last-child > * { border-bottom: 0; }
+    tr > *:last-child { border-right: 0; }
+    thead th { height: 40px; font-size: 14px; font-weight: 500; }
+    .row-label { position: sticky; left: 0; z-index: 2; width: var(--label-width); min-width: var(--label-width); max-width: var(--label-width); padding: 8px 10px; border-right: 0; text-align: left; font-size: 14px; line-height: 1.25; font-weight: 500; overflow-wrap: anywhere; }
+    thead .row-label { z-index: 3; font-weight: 600; }
+    .score { position: sticky; left: var(--label-width); z-index: 2; width: var(--score-width); min-width: var(--score-width); max-width: var(--score-width); border-right-color: var(--seam); color: #6e6e73; font-size: 13px; line-height: 1; font-weight: 600; }
+    thead .score { z-index: 3; }
+    .day { width: 58px; min-width: 58px; max-width: 58px; }
+    .day, .score, .sleep-input { font-variant-numeric: tabular-nums; }
+    .mark-cell { position: relative; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+    .mark-cell:hover { background: #fafafa; }
+    .mark-cell:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid #1d1d1f; outline-offset: 2px; }
+    .cross { display: block; min-height: 25px; font-size: 26px; line-height: 1; font-weight: 300; }
+    .note { display: block; width: 100%; margin: 3px auto 0; padding: 0 2px; color: #6e6e73; font-size: 10px; line-height: 1.25; overflow: visible; overflow-wrap: anywhere; white-space: pre-wrap; }
+    .sleep-input { width: 44px; height: 44px; appearance: none; -webkit-appearance: none; border: 0; border-radius: 0; padding: 3px; background: transparent; color: #1d1d1f; font: inherit; font-size: 16px; text-align: center; }
+    .stable .row-label { font-weight: 600; }
+    footer { padding: 18px 12px 28px; color: #6e6e73; font-size: 12px; line-height: 1.4; text-align: center; }
+    .actions { display: flex; justify-content: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    button { min-height: 40px; border: 1px solid #c7c7cc; border-radius: 10px; padding: 7px 14px; background: rgba(255,255,255,.9); color: #1d1d1f; font-family: inherit; font-size: 14px; font-weight: 500; line-height: 1.2; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.03); transition: transform .08s ease, background .15s ease; }
+    button:hover { background: #fff; }
+    button:active { transform: scale(.98); }
+    .info-trigger { position: absolute; top: 14px; right: 14px; z-index: 4; min-width: 46px; border-color: transparent; background: #f5f5f7; color: #515154; }
+    #saveData, #saveNote { border-color: #1d1d1f; background: #1d1d1f; color: #fff; }
+    .save-status { min-height: 18px; color: #515154; font-size: 12px; }
+    .author { margin-top: 5px; color: #86868b; letter-spacing: .01em; }
+    .version { margin-top: 2px; color: #86868b; letter-spacing: .02em; }
+    .overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; background: rgba(245,245,247,.84); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+    .overlay[hidden] { display: none; }
+    .editor { width: min(420px, 100%); border: 1px solid #d2d2d7; border-radius: 18px; padding: 20px; background: #fff; box-shadow: 0 18px 60px rgba(0,0,0,.14); }
+    .editor h2 { margin: 0 0 10px; font-size: 20px; line-height: 1.2; font-weight: 600; letter-spacing: -.015em; }
+    .editor textarea { width: 100%; min-height: 110px; max-height: 52vh; resize: vertical; border: 1px solid #c7c7cc; border-radius: 12px; padding: 10px; background: #f5f5f7; color: #1d1d1f; font: 16px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .editor .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+    .info-panel { width: min(560px, 100%); max-height: calc(100vh - 36px); overflow: auto; }
+    .info-content { color: #515154; font-size: 14px; line-height: 1.48; }
+    .info-content h3 { margin: 18px 0 6px; color: #1d1d1f; font-size: 15px; line-height: 1.25; font-weight: 600; }
+    .info-content h3:first-child { margin-top: 4px; }
+    .info-content ul { margin: 0; padding-left: 21px; }
+    .info-content li + li { margin-top: 6px; }
+    .info-content p { margin: 0; }
+    @media (max-width: 480px) {
+      :root { --label-width: 136px; }
+      header { padding: 22px 10px 18px; }
+      h1 { margin-bottom: 16px; padding: 34px 0 0; font-size: 24px; }
+      .info-trigger { top: 9px; right: 9px; }
+      .period { gap: 9px 12px; }
+      .period label { font-size: 14px; }
+      .table-wrap { width: calc(100% - 16px); margin-top: 10px; border-radius: 13px; }
+      .row-label { font-size: 13px; }
+      .day { width: 56px; min-width: 56px; max-width: 56px; }
+    }
+    @media print {
+      @page { size: A4 landscape; margin: 4mm; }
+      html, body { width: 100% !important; min-width: 0 !important; margin: 0 !important; background: #fff !important; }
+      header { padding: 0 0 3mm !important; border: 0 !important; background: #fff !important; }
+      h1 { margin: 0 0 2mm !important; padding: 0 !important; font-size: 14px !important; line-height: 1.1 !important; }
+      .period { gap: 3mm !important; flex-wrap: nowrap !important; }
+      .period label, .period select { font-size: 9px !important; }
+      .period input, .period select { height: 22px !important; padding: 1px 4px !important; border-radius: 3px !important; }
+      .period input { width: 76px !important; }
+      .period input.year { width: 46px !important; }
+      .actions, .save-status, .info-trigger, .overlay, footer { display: none !important; }
+      main.table-wrap, .table-wrap {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        overflow: visible !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+      }
+      table {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        table-layout: fixed !important;
+        border-spacing: 0 !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid-page !important;
+      }
+      th, td {
+        height: 52px !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        padding: 1px !important;
+        font-size: 7px !important;
+        line-height: 1.08 !important;
+        overflow: hidden !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      thead th { height: 22px !important; font-size: 8px !important; }
+      .row-label, thead .row-label {
+        position: static !important;
+        left: auto !important;
+        z-index: auto !important;
+        width: 96px !important;
+        min-width: 96px !important;
+        max-width: 96px !important;
+        padding: 2px 3px !important;
+        font-size: 7px !important;
+        overflow: visible !important;
+      }
+      .score, thead .score {
+        position: static !important;
+        left: auto !important;
+        z-index: auto !important;
+        width: 20px !important;
+        min-width: 20px !important;
+        max-width: 20px !important;
+        font-size: 7px !important;
+      }
+      .day {
+        width: calc((100% - 116px) / 31) !important;
+        min-width: 0 !important;
+        max-width: none !important;
+      }
+      .cross { min-height: 12px !important; font-size: 14px !important; line-height: .9 !important; }
+      .note { margin-top: 1px !important; padding: 0 !important; font-size: 5.5px !important; line-height: 1.05 !important; overflow: visible !important; }
+      .sleep-input { width: 100% !important; height: 24px !important; padding: 0 !important; font-size: 8px !important; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <button class="info-trigger" id="infoButton" type="button" aria-haspopup="dialog" aria-controls="infoOverlay">Info</button>
+    <h1 id="title">ГРАФИК НАСТРОЕНИЯ</h1>
+    <div class="period">
+      <label><span id="monthLabel">Месяц</span> <input id="month" type="text" autocomplete="off" aria-label="Месяц"></label>
+      <label><span id="yearLabel">Год</span> <input id="year" class="year" type="text" inputmode="numeric" autocomplete="off" aria-label="Год"></label>
+      <select id="language" aria-label="Язык">
+        <option value="ru">Русский</option>
+        <option value="en">English</option>
+        <option value="uk">Українська</option>
+        <option value="nl">Nederlands</option>
+        <option value="ko">한국어</option>
+      </select>
+    </div>
+  </header>
+  <main class="table-wrap" id="tableWrap" aria-label="Прокручиваемая таблица настроения">
+    <table id="moodTable">
+      <thead><tr id="daysRow"><th class="row-label" id="dayLabel" scope="col">День</th><th class="score" id="scoreLabel" scope="col">±</th></tr></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </main>
+  <footer>
+    <div class="actions">
+      <button id="saveData" type="button">Сохранить</button>
+      <button id="downloadCopy" type="button">Скачать заполненную копию</button>
+      <button id="printTable" type="button">Печать / PDF</button>
+      <button id="clearTable" type="button">Очистить таблицу</button>
+    </div>
+    <div class="save-status" id="saveStatus" role="status" aria-live="polite"></div>
+    <div class="author"><span id="authorLabel">Автор</span>: KoreNat</div>
+    <div class="version">v.1.2-print</div>
+  </footer>
+  <div class="overlay" id="overlay" hidden>
+    <section class="editor" role="dialog" aria-modal="true" aria-labelledby="editorTitle">
+      <h2 id="editorTitle">Запись</h2>
+      <textarea id="noteInput" placeholder="Например: 09:00, 19:00"></textarea>
+      <div class="buttons">
+        <button id="cancelNote" type="button">Отмена</button>
+        <button id="saveNote" type="button">Сохранить</button>
+      </div>
+    </section>
+  </div>
+  <div class="overlay" id="infoOverlay" hidden>
+    <section class="editor info-panel" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+      <h2 id="infoTitle">Информация</h2>
+      <div class="info-content" id="infoContent"></div>
+      <div class="buttons">
+        <button id="closeInfo" type="button">Закрыть</button>
+      </div>
+    </section>
+  </div>
+  <script id="embeddedData" type="application/json"></script>
+  <script>
+  (function () {
+    'use strict';
+    var ROWS = [
+      { id: 'sleep', type: 'text', score: '' },
+      { id: 'medicine', type: 'mark', score: '' },
+      { id: 'veryHigh', type: 'mark', score: '+3' },
+      { id: 'high', type: 'mark', score: '+2' },
+      { id: 'slightlyHigh', type: 'mark', score: '+1' },
+      { id: 'stable', type: 'mark', score: '', stable: true },
+      { id: 'slightlyLow', type: 'mark', score: '-1' },
+      { id: 'low', type: 'mark', score: '-2' },
+      { id: 'veryLow', type: 'mark', score: '-3' }
+    ];
+    var I18N = {
+      ru: {
+        title: 'ГРАФИК НАСТРОЕНИЯ', month: 'Месяц', year: 'Год', day: 'День', language: 'Язык', score: 'Шкала настроения', author: 'Автор',
+        rows: ['Часы сна', 'Приём лекарств', 'Чрезмерно приподнятое', 'Умеренно приподнятое', 'Слегка приподнятое', 'СТАБИЛЬНОЕ', 'Слегка подавленное', 'Умеренно подавленное', 'Значительно подавленное'],
+        buttons: ['Сохранить', 'Скачать заполненную копию', 'Печать / PDF', 'Очистить таблицу'],
+        entry: 'Запись', example: 'Например: 09:00, 19:00', cancel: 'Отмена',
+        saved: 'Сохранено', saveError: 'Для надёжного хранения скачайте заполненную копию.', downloaded: 'Заполненная копия создана.',
+        clear: 'Удалить месяц, год и все записи из этой таблицы?', marked: 'отмечено', unmarked: 'не отмечено', note: 'запись', keyHelp: 'Enter — крестик, F2 — текст', scroll: 'Прокручиваемая таблица настроения',
+        info: { button: 'Info', title: 'Как пользоваться', useTitle: 'Работа с таблицей', use: ['Один клик по клетке ставит ×; повторный клик убирает его.', 'Два клика по клетке открывают поле для времени или короткой записи. Нажмите «Сохранить».', 'Часы сна вводятся прямо в клетке нужного дня.', 'Таблицу можно двигать пальцем или прокручивать вправо и влево.', '«Сохранить» записывает изменения в этот браузер. «Скачать заполненную копию» создаёт отдельный файл для хранения или пересылки.'], privacyTitle: 'Приватность и безопасность', privacy: ['Все введённые сведения хранятся только на устройстве пользователя: в браузере и в скачанной копии.', 'Файл не отправляет сведения на сервер, не использует аналитику, рекламу, учётную запись, камеру, микрофон, геолокацию или контакты.', 'Заполненная копия может содержать личные сведения — пересылайте её только тем, кому доверяете.'], freeTitle: 'Стоимость', freeText: 'Приложение бесплатно. Платных функций и покупок внутри нет.', close: 'Закрыть' }
+      },
+      en: {
+        title: 'Mood Chart', month: 'Month', year: 'Year', day: 'Day', language: 'Language', score: 'Mood scale', author: 'Author',
+        rows: ['Hours of sleep', 'Took medication', 'Severely elevated', 'Moderately elevated', 'Mildly elevated', 'STABLE', 'Mildly depressed', 'Moderately depressed', 'Severely depressed'],
+        buttons: ['Save', 'Download filled copy', 'Print / PDF', 'Clear table'],
+        entry: 'Entry', example: 'For example: 09:00, 19:00', cancel: 'Cancel',
+        saved: 'Saved', saveError: 'For reliable storage, download a filled copy.', downloaded: 'Filled copy created.',
+        clear: 'Delete the month, year and all entries from this table?', marked: 'marked', unmarked: 'not marked', note: 'note', keyHelp: 'Enter — mark, F2 — text', scroll: 'Scrollable mood chart',
+        info: { button: 'Info', title: 'How to use', useTitle: 'Using the table', use: ['Tap a cell once to add ×; tap it again to remove it.', 'Double-tap a cell to enter a time or a short note, then select “Save”.', 'Enter hours of sleep directly in the cell for the relevant day.', 'Swipe or scroll the table left and right to see all days.', '“Save” stores changes in this browser. “Download filled copy” creates a separate file for safekeeping or sharing.'], privacyTitle: 'Privacy and safety', privacy: ['Everything you enter stays only on your device: in the browser and in any downloaded copy.', 'The file sends nothing to a server and uses no analytics, advertising, account, camera, microphone, location or contacts.', 'A filled copy may contain personal information. Share it only with people you trust.'], freeTitle: 'Cost', freeText: 'The app is free. It has no paid features or in-app purchases.', close: 'Close' }
+      },
+      uk: {
+        title: 'Графік настрою', month: 'Місяць', year: 'Рік', day: 'День', language: 'Мова', score: 'Шкала настрою', author: 'Автор',
+        rows: ['Години сну', 'Прийом ліків', 'Надмірно піднесений', 'Помірно піднесений', 'Злегка піднесений', 'СТАБІЛЬНИЙ', 'Злегка пригнічений', 'Помірно пригнічений', 'Значно пригнічений'],
+        buttons: ['Зберегти', 'Завантажити заповнену копію', 'Друк / PDF', 'Очистити таблицю'],
+        entry: 'Запис', example: 'Наприклад: 09:00, 19:00', cancel: 'Скасувати',
+        saved: 'Збережено', saveError: 'Для надійного зберігання завантажте заповнену копію.', downloaded: 'Заповнену копію створено.',
+        clear: 'Видалити місяць, рік і всі записи з цієї таблиці?', marked: 'позначено', unmarked: 'не позначено', note: 'запис', keyHelp: 'Enter — позначка, F2 — текст', scroll: 'Прокручуваний графік настрою',
+        info: { button: 'Info', title: 'Як користуватися', useTitle: 'Робота з таблицею', use: ['Один дотик до клітинки ставить ×; повторний дотик прибирає його.', 'Подвійний дотик до клітинки відкриває поле для часу або короткого запису. Натисніть «Зберегти».', 'Години сну вводяться безпосередньо в клітинці потрібного дня.', 'Таблицю можна рухати пальцем або прокручувати вправо та вліво.', '«Зберегти» записує зміни в цьому браузері. «Завантажити заповнену копію» створює окремий файл для зберігання або пересилання.'], privacyTitle: 'Приватність і безпека', privacy: ['Усі введені дані зберігаються лише на пристрої користувача: у браузері та в завантаженій копії.', 'Файл не надсилає дані на сервер і не використовує аналітику, рекламу, обліковий запис, камеру, мікрофон, геолокацію чи контакти.', 'Заповнена копія може містити особисті дані — надсилайте її лише тим, кому довіряєте.'], freeTitle: 'Вартість', freeText: 'Застосунок безкоштовний. Платних функцій і вбудованих покупок немає.', close: 'Закрити' }
+      },
+      nl: {
+        title: 'Stemmingsgrafiek', month: 'Maand', year: 'Jaar', day: 'Dag', language: 'Taal', score: 'Stemmingsschaal', author: 'Auteur',
+        rows: ['Slaapuren', 'Medicatie ingenomen', 'Sterk verhoogd', 'Matig verhoogd', 'Licht verhoogd', 'STABIEL', 'Licht depressief', 'Matig depressief', 'Ernstig depressief'],
+        buttons: ['Opslaan', 'Ingevulde kopie downloaden', 'Afdrukken / PDF', 'Tabel wissen'],
+        entry: 'Notitie', example: 'Bijvoorbeeld: 09:00, 19:00', cancel: 'Annuleren',
+        saved: 'Opgeslagen', saveError: 'Download een ingevulde kopie om de gegevens betrouwbaar te bewaren.', downloaded: 'Ingevulde kopie aangemaakt.',
+        clear: 'De maand, het jaar en alle gegevens uit deze tabel verwijderen?', marked: 'gemarkeerd', unmarked: 'niet gemarkeerd', note: 'notitie', keyHelp: 'Enter — markering, F2 — tekst', scroll: 'Verschuifbare stemmingsgrafiek',
+        info: { button: 'Info', title: 'Zo werkt het', useTitle: 'De tabel gebruiken', use: ['Tik één keer op een cel om × te plaatsen; tik opnieuw om het te verwijderen.', 'Dubbeltik op een cel om een tijd of korte notitie in te voeren en kies daarna “Opslaan”.', 'Vul de slaapuren rechtstreeks in de cel van de juiste dag in.', 'Veeg of scrol de tabel naar links en rechts om alle dagen te zien.', '“Opslaan” bewaart wijzigingen in deze browser. “Ingevulde kopie downloaden” maakt een apart bestand om te bewaren of te delen.'], privacyTitle: 'Privacy en veiligheid', privacy: ['Alles wat u invoert blijft alleen op uw apparaat: in de browser en in een gedownloade kopie.', 'Het bestand stuurt niets naar een server en gebruikt geen analyse, advertenties, account, camera, microfoon, locatie of contacten.', 'Een ingevulde kopie kan persoonlijke informatie bevatten. Deel deze alleen met mensen die u vertrouwt.'], freeTitle: 'Kosten', freeText: 'De app is gratis. Er zijn geen betaalde functies of in-appaankopen.', close: 'Sluiten' }
+      },
+      ko: {
+        title: '기분 변화표', month: '월', year: '년', day: '일', language: '언어', score: '기분 척도', author: '제작자',
+        rows: ['수면 시간', '약 복용', '매우 고양됨', '중등도 고양됨', '약간 고양됨', '안정적', '약간 우울함', '중등도 우울함', '심하게 우울함'],
+        buttons: ['저장', '작성된 사본 다운로드', '인쇄 / PDF', '표 지우기'],
+        entry: '기록', example: '예: 09:00, 19:00', cancel: '취소',
+        saved: '저장됨', saveError: '안전하게 보관하려면 작성된 사본을 다운로드하세요.', downloaded: '작성된 사본이 생성되었습니다.',
+        clear: '월, 연도 및 표의 모든 기록을 삭제하시겠습니까?', marked: '표시됨', unmarked: '표시되지 않음', note: '기록', keyHelp: 'Enter — 표시, F2 — 텍스트', scroll: '가로로 이동할 수 있는 기분 변화표',
+        info: { button: 'Info', title: '사용 방법', useTitle: '표 사용하기', use: ['칸을 한 번 누르면 ×가 표시되고, 다시 누르면 표시가 지워집니다.', '칸을 두 번 누르면 시간이나 짧은 메모를 입력할 수 있습니다. 입력 후 “저장”을 누르세요.', '수면 시간은 해당 날짜의 칸에 직접 입력합니다.', '표를 손가락으로 밀거나 좌우로 스크롤하면 모든 날짜를 볼 수 있습니다.', '“저장”은 이 브라우저에 변경 내용을 저장합니다. “작성된 사본 다운로드”는 보관하거나 공유할 별도 파일을 만듭니다.'], privacyTitle: '개인정보 보호 및 안전', privacy: ['입력한 모든 정보는 사용자의 기기에만 저장됩니다. 브라우저와 다운로드한 사본에만 남습니다.', '이 파일은 서버로 정보를 보내지 않으며 분석, 광고, 계정, 카메라, 마이크, 위치 또는 연락처를 사용하지 않습니다.', '작성된 사본에는 개인정보가 포함될 수 있으므로 신뢰하는 사람에게만 공유하세요.'], freeTitle: '비용', freeText: '이 앱은 무료이며 유료 기능이나 앱 내 구매가 없습니다.', close: '닫기' }
+      }
+    };
+    var $ = function (id) { return document.getElementById(id); };
+    var embeddedElement = $('embeddedData');
+    var embedded = null;
+    try { if (embeddedElement.textContent.trim()) embedded = JSON.parse(embeddedElement.textContent); } catch (ignore) {}
+    var fileId = embedded && embedded.fileId ? String(embedded.fileId) : 'original';
+    var storageKey = 'mood-chart-v1-' + fileId;
+    var LOCALES = { ru: 'ru-RU', en: 'en-GB', uk: 'uk-UA', nl: 'nl-NL', ko: 'ko-KR' };
+    var emptyState = { month: '', year: '', lang: 'ru', savedAt: '', sleep: {}, cells: {} };
+    var state = loadState();
+    if (!I18N[state.lang]) state.lang = 'ru';
+    var activeCell = null;
+    var saveTimer = 0;
+    var pointerStart = null;
+    var tapTimers = new WeakMap();
+
+    function cloneEmpty() { return JSON.parse(JSON.stringify(emptyState)); }
+    function validState(value) { return value && typeof value === 'object' && value.sleep && value.cells; }
+    function text() { return I18N[state.lang]; }
+    function loadState() {
+      try {
+        var stored = localStorage.getItem(storageKey);
+        if (stored) { var parsed = JSON.parse(stored); if (validState(parsed)) return parsed; }
+      } catch (ignore) {}
+      if (embedded && validState(embedded.state)) return embedded.state;
+      return cloneEmpty();
+    }
+    function persist() {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(saveNow, 80);
+    }
+    function saveNow() {
+      window.clearTimeout(saveTimer);
+      state.savedAt = new Date().toISOString();
+      try { localStorage.setItem(storageKey, JSON.stringify(state)); showStatus(savedStatus()); }
+      catch (ignore) { showStatus(text().saveError); }
+    }
+    function showStatus(value) { $('saveStatus').textContent = value; }
+    function savedStatus() {
+      if (!state.savedAt) return '';
+      var date = new Date(state.savedAt); if (Number.isNaN(date.getTime())) return '';
+      var value;
+      try { value = new Intl.DateTimeFormat(LOCALES[state.lang], { dateStyle: 'short', timeStyle: 'short' }).format(date); }
+      catch (ignore) { value = date.toLocaleString(); }
+      return text().saved + ': ' + value;
+    }
+    function keyFor(rowId, day) { return rowId + '-' + day; }
+    function readEntry(rowId, day) { return state.cells[keyFor(rowId, day)] || { marked: false, note: '' }; }
+    function writeEntry(rowId, day, entry) {
+      var key = keyFor(rowId, day);
+      if (entry.marked || entry.note) state.cells[key] = entry; else delete state.cells[key];
+    }
+    function applyLanguage() {
+      var t = text();
+      document.documentElement.lang = state.lang; document.title = t.title; $('title').textContent = t.title;
+      $('monthLabel').textContent = t.month; $('yearLabel').textContent = t.year; $('dayLabel').textContent = t.day;
+      $('month').setAttribute('aria-label', t.month); $('year').setAttribute('aria-label', t.year); $('language').setAttribute('aria-label', t.language);
+      $('scoreLabel').setAttribute('aria-label', t.score); $('tableWrap').setAttribute('aria-label', t.scroll); $('authorLabel').textContent = t.author;
+      $('infoButton').textContent = t.info.button; $('infoButton').setAttribute('aria-label', t.info.title); renderInfo();
+      ['saveData', 'downloadCopy', 'printTable', 'clearTable'].forEach(function (id, index) { $(id).textContent = t.buttons[index]; });
+      $('noteInput').placeholder = t.example; $('cancelNote').textContent = t.cancel; $('saveNote').textContent = t.buttons[0];
+      document.querySelectorAll('[data-row-label]').forEach(function (label) { label.textContent = t.rows[Number(label.dataset.rowIndex)]; });
+      document.querySelectorAll('.sleep-input').forEach(function (input) { input.setAttribute('aria-label', t.rows[0] + ', ' + t.day + ' ' + input.dataset.day); });
+      document.querySelectorAll('.mark-cell').forEach(function (cell) { updateMarkCell(cell); });
+      if (!activeCell) $('editorTitle').textContent = t.entry;
+      $('language').value = state.lang; showStatus(savedStatus());
+    }
+    function renderInfo() {
+      var info = text().info; $('infoTitle').textContent = info.title; $('closeInfo').textContent = info.close;
+      var content = $('infoContent'); content.textContent = '';
+      [[info.useTitle, info.use], [info.privacyTitle, info.privacy]].forEach(function (section) {
+        var heading = document.createElement('h3'); heading.textContent = section[0]; content.appendChild(heading);
+        var list = document.createElement('ul'); section[1].forEach(function (value) { var item = document.createElement('li'); item.textContent = value; list.appendChild(item); }); content.appendChild(list);
+      });
+      var costHeading = document.createElement('h3'); costHeading.textContent = info.freeTitle; content.appendChild(costHeading);
+      var cost = document.createElement('p'); cost.textContent = info.freeText; content.appendChild(cost);
+    }
+    function buildTable() {
+      var daysRow = $('daysRow');
+      for (var day = 1; day <= 31; day += 1) {
+        var dayHeader = document.createElement('th');
+        dayHeader.className = 'day'; dayHeader.scope = 'col'; dayHeader.textContent = String(day); daysRow.appendChild(dayHeader);
+      }
+      var body = $('tableBody');
+      ROWS.forEach(function (row, rowIndex) {
+        var tr = document.createElement('tr'); if (row.stable) tr.className = 'stable';
+        var label = document.createElement('th'); label.className = 'row-label'; label.scope = 'row'; label.dataset.rowLabel = ''; label.dataset.rowIndex = String(rowIndex); tr.appendChild(label);
+        var score = document.createElement('td'); score.className = 'score'; score.textContent = row.score; tr.appendChild(score);
+        for (var day = 1; day <= 31; day += 1) tr.appendChild(row.type === 'text' ? makeSleepCell(day) : makeMarkCell(row, rowIndex, day));
+        body.appendChild(tr);
+      });
+    }
+    function makeSleepCell(day) {
+      var td = document.createElement('td'); td.className = 'day';
+      var input = document.createElement('input');
+      input.className = 'sleep-input'; input.type = 'text'; input.inputMode = 'decimal'; input.autocomplete = 'off';
+      input.value = state.sleep[String(day)] || ''; input.dataset.day = String(day);
+      td.appendChild(input); return td;
+    }
+    function makeMarkCell(row, rowIndex, day) {
+      var td = document.createElement('td');
+      td.className = 'day mark-cell'; td.tabIndex = 0; td.dataset.row = row.id; td.dataset.rowIndex = String(rowIndex); td.dataset.day = String(day); td.setAttribute('role', 'button'); return td;
+    }
+    function handleTap(cell) {
+      var oldTimer = tapTimers.get(cell);
+      if (oldTimer) { window.clearTimeout(oldTimer); tapTimers.delete(cell); openEditor(cell); return; }
+      var timer = window.setTimeout(function () { tapTimers.delete(cell); toggleMark(cell); }, 300);
+      tapTimers.set(cell, timer);
+    }
+    function toggleMark(cell) {
+      var entry = readEntry(cell.dataset.row, cell.dataset.day); entry = { marked: !entry.marked, note: entry.note };
+      writeEntry(cell.dataset.row, cell.dataset.day, entry); updateMarkCell(cell); persist();
+    }
+    function updateMarkCell(cell) {
+      var entry = readEntry(cell.dataset.row, cell.dataset.day); var t = text(); var rowIndex = Number(cell.dataset.rowIndex); cell.innerHTML = '';
+      var cross = document.createElement('span'); cross.className = 'cross'; cross.textContent = entry.marked ? '×' : ''; cell.appendChild(cross);
+      if (entry.note) { var note = document.createElement('span'); note.className = 'note'; note.textContent = entry.note.trim(); cell.appendChild(note); }
+      var status = entry.marked ? t.marked : t.unmarked; if (entry.note) status += ', ' + t.note + ': ' + entry.note;
+      cell.setAttribute('aria-label', t.rows[rowIndex] + ', ' + t.day + ' ' + cell.dataset.day + ', ' + status + '. ' + t.keyHelp);
+    }
+    function openEditor(cell) {
+      activeCell = cell; var entry = readEntry(cell.dataset.row, cell.dataset.day); var rowIndex = Number(cell.dataset.rowIndex);
+      $('editorTitle').textContent = text().day + ' ' + cell.dataset.day + ' — ' + text().rows[rowIndex];
+      var input = $('noteInput'); input.value = entry.note || '';
+      $('overlay').hidden = false; window.setTimeout(function () { fitNoteInput(); input.focus(); input.select(); }, 0);
+    }
+    function fitNoteInput() { var input = $('noteInput'); input.style.height = 'auto'; input.style.height = Math.min(Math.max(input.scrollHeight, 110), window.innerHeight * .52) + 'px'; }
+    function closeEditor() { $('overlay').hidden = true; if (activeCell) activeCell.focus(); activeCell = null; }
+    function saveEditor() {
+      if (!activeCell) return;
+      var entry = readEntry(activeCell.dataset.row, activeCell.dataset.day); entry = { marked: entry.marked, note: $('noteInput').value.trim() };
+      writeEntry(activeCell.dataset.row, activeCell.dataset.day, entry);
+      updateMarkCell(activeCell); persist(); closeEditor();
+    }
+    function makeDownloadCopy() {
+      saveNow();
+      var copy = document.documentElement.cloneNode(true); copy.querySelector('#overlay').hidden = true; copy.querySelector('#infoOverlay').hidden = true; copy.querySelector('#noteInput').textContent = '';
+      copy.querySelector('#daysRow').innerHTML = '<th class="row-label" id="dayLabel" scope="col"></th><th class="score" id="scoreLabel" scope="col">±</th>';
+      copy.querySelector('#tableBody').innerHTML = '';
+      var payload = { fileId: 'copy-' + Date.now().toString(36), state: state };
+      copy.querySelector('#embeddedData').textContent = JSON.stringify(payload).replace(/<\/script/gi, '<\\/script');
+      var html = '<!doctype html>\n' + copy.outerHTML; var blob = new Blob([html], { type: 'text/html;charset=utf-8' }); var url = URL.createObjectURL(blob);
+      var link = document.createElement('a'); var monthName = String(state.month || text().month).replace(/[\\/:*?"<>|\s]+/g, '_'); var yearName = String(state.year || '').replace(/[^0-9_-]+/g, '');
+      link.href = url; link.download = text().title.replace(/\s+/g, '_') + '_' + monthName + (yearName ? '_' + yearName : '') + '.html'; document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000); showStatus(text().downloaded);
+    }
+
+    $('month').value = state.month || ''; $('year').value = state.year || '';
+    ['month', 'year'].forEach(function (id) { $(id).addEventListener('input', function (event) { state[id] = event.target.value; persist(); }); });
+    $('language').addEventListener('change', function (event) { state.lang = event.target.value; applyLanguage(); persist(); });
+    $('moodTable').addEventListener('input', function (event) {
+      if (!event.target.classList.contains('sleep-input')) return;
+      var day = event.target.dataset.day; if (event.target.value) state.sleep[day] = event.target.value; else delete state.sleep[day]; persist();
+    });
+    $('moodTable').addEventListener('pointerdown', function (event) {
+      var cell = event.target.closest('.mark-cell'); if (event.isPrimary && cell) pointerStart = { cell: cell, x: event.clientX, y: event.clientY };
+    });
+    $('moodTable').addEventListener('pointerup', function (event) {
+      if (!event.isPrimary || !pointerStart) return; var start = pointerStart; pointerStart = null;
+      if (start.cell !== event.target.closest('.mark-cell') || Math.abs(event.clientX - start.x) > 9 || Math.abs(event.clientY - start.y) > 9) return; handleTap(start.cell);
+    });
+    $('moodTable').addEventListener('pointercancel', function () { pointerStart = null; });
+    $('moodTable').addEventListener('keydown', function (event) {
+      var cell = event.target.closest('.mark-cell'); if (!cell) return;
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleMark(cell); }
+      else if (event.key === 'F2') { event.preventDefault(); openEditor(cell); }
+    });
+    $('cancelNote').addEventListener('click', closeEditor); $('saveNote').addEventListener('click', saveEditor);
+    $('noteInput').addEventListener('input', fitNoteInput);
+    $('overlay').addEventListener('pointerdown', function (event) { if (event.target.id === 'overlay') closeEditor(); });
+    $('infoButton').addEventListener('click', function () { $('infoOverlay').hidden = false; $('closeInfo').focus(); });
+    function closeInfo() { $('infoOverlay').hidden = true; $('infoButton').focus(); }
+    $('closeInfo').addEventListener('click', closeInfo);
+    $('infoOverlay').addEventListener('pointerdown', function (event) { if (event.target.id === 'infoOverlay') closeInfo(); });
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      if (!$('infoOverlay').hidden) closeInfo(); else if (!$('overlay').hidden) closeEditor();
+    });
+    $('saveData').addEventListener('click', saveNow); $('downloadCopy').addEventListener('click', makeDownloadCopy); $('printTable').addEventListener('click', function () { window.print(); });
+    $('clearTable').addEventListener('click', function () {
+      if (!window.confirm(text().clear)) return;
+      state = cloneEmpty(); try { localStorage.removeItem(storageKey); } catch (ignore) {} window.location.reload();
+    });
+    buildTable(); applyLanguage();
+  }());
+  </script>
+</body>
+</html>
