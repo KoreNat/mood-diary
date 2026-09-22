@@ -28,13 +28,26 @@ public class MainActivity extends Activity {
     private TextView status;
     private Button recordButton;
     private File clipsDir;
+    private File processedDir;
     private File songFile;
+
+    private SeekBar cleanupBar;
+    private SeekBar brightnessBar;
+    private SeekBar bpmBar;
+    private TextView cleanupValue;
+    private TextView brightnessValue;
+    private TextView bpmValue;
+    private CheckBox drumsBox;
+    private CheckBox bassBox;
+    private CheckBox padBox;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         recorder = new AudioRecorder(this);
         clipsDir = new File(getFilesDir(), "clips");
+        processedDir = new File(getFilesDir(), "processed");
         clipsDir.mkdirs();
+        processedDir.mkdirs();
         songFile = new File(getFilesDir(), "clipsong_mix.wav");
         setContentView(buildUi());
         refreshClips();
@@ -56,16 +69,53 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("Записывайте голос, ритм, шумы и короткие мелодии. Затем соберите из них один трек.");
+        sub.setText("Запишите голос или звуки. Приложение очистит и улучшит запись, а затем может добавить ритм, бас и гармонический фон.");
         sub.setTextSize(16);
-        sub.setPadding(0, dp(6), 0, dp(18));
+        sub.setPadding(0, dp(6), 0, dp(14));
         root.addView(sub);
 
         recordButton = bigButton("●  Записать фрагмент");
         recordButton.setOnClickListener(v -> toggleRecord());
         root.addView(recordButton);
 
-        Button make = bigButton("♫  Собрать песню");
+        root.addView(sectionTitle("Обработка голоса"));
+
+        cleanupValue = valueLabel();
+        root.addView(labelRow("Очистка шума", cleanupValue));
+        cleanupBar = seek(0, 100, 68);
+        cleanupBar.setOnSeekBarChangeListener(simpleProgress(cleanupValue, ""));
+        root.addView(cleanupBar);
+
+        brightnessValue = valueLabel();
+        root.addView(labelRow("Звонкость / присутствие", brightnessValue));
+        brightnessBar = seek(0, 100, 58);
+        brightnessBar.setOnSeekBarChangeListener(simpleProgress(brightnessValue, ""));
+        root.addView(brightnessBar);
+
+        root.addView(sectionTitle("Сопровождение"));
+
+        drumsBox = new CheckBox(this);
+        drumsBox.setText("Ударные");
+        drumsBox.setChecked(true);
+        root.addView(drumsBox);
+
+        bassBox = new CheckBox(this);
+        bassBox.setText("Бас");
+        bassBox.setChecked(true);
+        root.addView(bassBox);
+
+        padBox = new CheckBox(this);
+        padBox.setText("Гармонический фон");
+        padBox.setChecked(false);
+        root.addView(padBox);
+
+        bpmValue = valueLabel();
+        root.addView(labelRow("Темп", bpmValue));
+        bpmBar = seek(60, 180, 108);
+        bpmBar.setOnSeekBarChangeListener(simpleProgress(bpmValue, " BPM"));
+        root.addView(bpmBar);
+
+        Button make = bigButton("♫  Обработать и собрать песню");
         make.setOnClickListener(v -> makeSong());
         root.addView(make);
 
@@ -86,17 +136,64 @@ public class MainActivity extends Activity {
         status.setPadding(0, dp(14), 0, dp(14));
         root.addView(status);
 
-        TextView h = new TextView(this);
-        h.setText("Фрагменты");
-        h.setTextSize(22);
-        h.setTypeface(null, 1);
-        h.setPadding(0, dp(8), 0, dp(8));
-        root.addView(h);
-
+        root.addView(sectionTitle("Фрагменты"));
         clipsBox = new LinearLayout(this);
         clipsBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(clipsBox);
+
+        updateLabels();
         return scroll;
+    }
+
+    private TextView sectionTitle(String s) {
+        TextView h = new TextView(this);
+        h.setText(s);
+        h.setTextSize(21);
+        h.setTypeface(null, 1);
+        h.setPadding(0, dp(12), 0, dp(6));
+        return h;
+    }
+
+    private LinearLayout labelRow(String left, TextView right) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TextView l = new TextView(this);
+        l.setText(left);
+        l.setTextSize(15);
+        row.addView(l, new LinearLayout.LayoutParams(0, dp(34), 1));
+        row.addView(right, new LinearLayout.LayoutParams(dp(90), dp(34)));
+        return row;
+    }
+
+    private TextView valueLabel() {
+        TextView v = new TextView(this);
+        v.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        v.setTextSize(14);
+        return v;
+    }
+
+    private SeekBar seek(int min, int max, int initial) {
+        SeekBar s = new SeekBar(this);
+        s.setMin(min);
+        s.setMax(max);
+        s.setProgress(initial);
+        return s;
+    }
+
+    private SeekBar.OnSeekBarChangeListener simpleProgress(TextView value, String suffix) {
+        return new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                value.setText(progress + suffix);
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        };
+    }
+
+    private void updateLabels() {
+        cleanupValue.setText(cleanupBar.getProgress() + "");
+        brightnessValue.setText(brightnessBar.getProgress() + "");
+        bpmValue.setText(bpmBar.getProgress() + " BPM");
     }
 
     private Button bigButton(String text) {
@@ -114,6 +211,17 @@ public class MainActivity extends Activity {
         b.setText(text);
         b.setTextSize(14);
         return b;
+    }
+
+    private SongMaker.Options options() {
+        return new SongMaker.Options(
+                cleanupBar.getProgress(),
+                brightnessBar.getProgress(),
+                drumsBox.isChecked(),
+                bassBox.isChecked(),
+                padBox.isChecked(),
+                bpmBar.getProgress()
+        );
     }
 
     private void toggleRecord() {
@@ -134,7 +242,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     recordButton.setEnabled(true);
                     recordButton.setText("●  Записать фрагмент");
-                    status.setText("Записано: " + prettyDuration(file));
+                    status.setText("Записано: " + prettyDuration(file) + ". Можно улучшить и прослушать.");
                     refreshClips();
                 });
             }
@@ -162,24 +270,57 @@ public class MainActivity extends Activity {
         }
         for (int i = 0; i < files.size(); i++) {
             File f = files.get(i);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout block = new LinearLayout(this);
+            block.setOrientation(LinearLayout.VERTICAL);
+            block.setPadding(0, dp(4), 0, dp(6));
+
             TextView label = new TextView(this);
             label.setText((i + 1) + ".  " + prettyDuration(f));
             label.setTextSize(16);
-            Button play = smallButton("▶");
+            block.addView(label);
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            Button raw = smallButton("▶ Оригинал");
+            Button enhanced = smallButton("✨ Улучшить");
             Button del = smallButton("Удалить");
-            play.setOnClickListener(v -> playFile(f));
+
+            raw.setOnClickListener(v -> playFile(f));
+            enhanced.setOnClickListener(v -> enhanceAndPlay(f));
             del.setOnClickListener(v -> {
                 stopPlayer();
+                File processed = processedFileFor(f);
+                processed.delete();
                 if (f.delete()) refreshClips();
             });
-            row.addView(label, new LinearLayout.LayoutParams(0, dp(50), 1));
-            row.addView(play, new LinearLayout.LayoutParams(dp(60), dp(50)));
-            row.addView(del, new LinearLayout.LayoutParams(dp(105), dp(50)));
-            clipsBox.addView(row);
+
+            row.addView(raw, new LinearLayout.LayoutParams(0, dp(50), 1));
+            row.addView(enhanced, new LinearLayout.LayoutParams(0, dp(50), 1));
+            row.addView(del, new LinearLayout.LayoutParams(dp(90), dp(50)));
+            block.addView(row);
+            clipsBox.addView(block);
         }
+    }
+
+    private void enhanceAndPlay(File source) {
+        SongMaker.Options opts = options();
+        File out = processedFileFor(source);
+        status.setText("Очищаю и улучшаю голос…");
+        worker.execute(() -> {
+            try {
+                SongMaker.enhanceClip(source, out, opts);
+                runOnUiThread(() -> {
+                    status.setText("Улучшенная версия готова");
+                    playFile(out);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Ошибка обработки: " + e.getMessage()));
+            }
+        });
+    }
+
+    private File processedFileFor(File source) {
+        return new File(processedDir, "enhanced_" + source.getName());
     }
 
     private List<File> getClipFiles() {
@@ -191,11 +332,12 @@ public class MainActivity extends Activity {
 
     private void makeSong() {
         List<File> clips = getClipFiles();
-        status.setText("Собираю трек…");
+        SongMaker.Options opts = options();
+        status.setText("Обрабатываю голос и собираю аранжировку…");
         worker.execute(() -> {
             try {
-                SongMaker.makeSong(clips, songFile);
-                runOnUiThread(() -> status.setText("Песня готова: " + prettyDuration(songFile) + ". Можно слушать или сохранить WAV."));
+                SongMaker.makeSong(clips, songFile, opts);
+                runOnUiThread(() -> status.setText("Песня готова: " + prettyDuration(songFile) + "."));
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("Не получилось собрать: " + e.getMessage()));
             }
@@ -223,7 +365,7 @@ public class MainActivity extends Activity {
 
     private void exportSong() {
         if (!songFile.exists()) {
-            status.setText("Сначала нажмите «Собрать песню»");
+            status.setText("Сначала нажмите «Обработать и собрать песню»");
             return;
         }
         worker.execute(() -> {
