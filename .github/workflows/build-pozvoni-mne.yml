@@ -33,5 +33,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: PozvoniMne-Samsung
+          name: PozvoniMne-v2
           path: pozvoni-mne/app/build/outputs/apk/debug/app-debug.apk
