@@ -103,14 +103,14 @@ public class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private String getCaller() {
+    private String getCallerName() {
         String value = callerName.getText().toString().trim();
         return value.isEmpty() ? "Напоминание" : value;
     }
 
     private void startCallNow() {
         Intent intent = new Intent(this, IncomingCallActivity.class);
-        intent.putExtra(EXTRA_CALLER, getCaller());
+        intent.putExtra(EXTRA_CALLER, getCallerName());
         startActivity(intent);
     }
 
@@ -129,7 +129,7 @@ public class MainActivity extends Activity {
         }
 
         Intent receiverIntent = new Intent(this, AlarmReceiver.class);
-        receiverIntent.putExtra(EXTRA_CALLER, getCaller());
+        receiverIntent.putExtra(EXTRA_CALLER, getCallerName());
         PendingIntent pendingIntent = PendingIntent.getBroadcast(
                 this,
                 1001,
