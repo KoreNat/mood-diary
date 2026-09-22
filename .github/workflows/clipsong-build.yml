@@ -25,13 +25,13 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
-      - name: Build debug APK
+      - name: Build unsigned release APK
         working-directory: clipsong
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleRelease --stacktrace
 
-      - name: Upload APK
+      - name: Upload unsigned APK
         uses: actions/upload-artifact@v4
         with:
-          name: ClipSong-debug-apk
-          path: clipsong/app/build/outputs/apk/debug/app-debug.apk
+          name: ClipSong-release-unsigned
+          path: clipsong/app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
