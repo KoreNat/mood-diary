@@ -7,6 +7,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -17,77 +18,142 @@ import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Locale;
 
 public class MainActivity extends Activity {
     public static final String CHANNEL_ID = "self_call_channel";
     public static final String EXTRA_CALLER = "caller_name";
+    public static final String EXTRA_SCRIPT = "conversation_script";
+
     private EditText callerName;
+    private EditText scriptText;
+    private TextView selectedTimeText;
     private TextView statusText;
+    private int selectedHour;
+    private int selectedMinute;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Calendar now = Calendar.getInstance();
+        now.add(Calendar.MINUTE, 2);
+        selectedHour = now.get(Calendar.HOUR_OF_DAY);
+        selectedMinute = now.get(Calendar.MINUTE);
+
         createNotificationChannel();
         buildUi();
         requestNotificationPermissionIfNeeded();
     }
 
     private void buildUi() {
+        ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(24), dp(42), dp(24), dp(24));
+        root.setPadding(dp(22), dp(36), dp(22), dp(32));
         root.setBackgroundColor(Color.WHITE);
+        scroll.addView(root);
 
         TextView title = new TextView(this);
         title.setText("Позвони мне");
         title.setTextSize(30);
         title.setTextColor(Color.BLACK);
         title.setGravity(Gravity.CENTER);
-        root.addView(title, matchWrap(dp(0), dp(18)));
+        root.addView(title, matchWrap(0, dp(6)));
 
-        TextView hint = new TextView(this);
-        hint.setText("Телефон сам покажет локальный входящий звонок.");
-        hint.setTextSize(16);
-        hint.setTextColor(Color.DKGRAY);
-        hint.setGravity(Gravity.CENTER);
-        root.addView(hint, matchWrap(dp(0), dp(26)));
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Настрой входящий звонок");
+        subtitle.setTextSize(16);
+        subtitle.setTextColor(Color.DKGRAY);
+        subtitle.setGravity(Gravity.CENTER);
+        root.addView(subtitle, matchWrap(0, dp(24)));
+
+        TextView nameLabel = label("Кто звонит");
+        root.addView(nameLabel);
 
         callerName = new EditText(this);
-        callerName.setHint("Имя звонящего");
-        callerName.setText("Напоминание");
+        callerName.setHint("Например: Анна");
+        callerName.setText("Анна");
         callerName.setSingleLine(true);
-        root.addView(callerName, matchWrap(dp(0), dp(18)));
+        root.addView(callerName, matchWrap(0, dp(18)));
 
-        Button now = new Button(this);
-        now.setText("Позвонить сейчас");
-        now.setOnClickListener(v -> startCallNow());
-        root.addView(now, matchWrap(dp(0), dp(10)));
+        TextView timeLabel = label("Во сколько позвонить");
+        root.addView(timeLabel);
 
-        Button later = new Button(this);
-        later.setText("Позвонить через 10 секунд");
-        later.setOnClickListener(v -> scheduleCallInTenSeconds());
-        root.addView(later, matchWrap(dp(0), dp(10)));
+        Button timeButton = new Button(this);
+        timeButton.setText("Выбрать время");
+        timeButton.setOnClickListener(v -> showTimePicker());
+        root.addView(timeButton, matchWrap(0, dp(8)));
+
+        selectedTimeText = new TextView(this);
+        selectedTimeText.setTextSize(22);
+        selectedTimeText.setTextColor(Color.BLACK);
+        selectedTimeText.setGravity(Gravity.CENTER);
+        updateSelectedTimeText();
+        root.addView(selectedTimeText, matchWrap(0, dp(20)));
+
+        TextView scriptLabel = label("Фразы собеседника");
+        root.addView(scriptLabel);
+
+        TextView scriptHint = new TextView(this);
+        scriptHint.setText("По одной фразе в строке. После ответа телефон будет произносить их с паузами, чтобы ты могла отвечать.");
+        scriptHint.setTextSize(14);
+        scriptHint.setTextColor(Color.DKGRAY);
+        root.addView(scriptHint, matchWrap(0, dp(8)));
+
+        scriptText = new EditText(this);
+        scriptText.setMinLines(6);
+        scriptText.setGravity(Gravity.TOP);
+        scriptText.setText(
+                "Привет, ты можешь сейчас говорить?\n" +
+                "Да, поняла. Я как раз хотела тебе об этом сказать.\n" +
+                "Хорошо, тогда давай сделаем так.\n" +
+                "Ладно, договорились. Я тебе потом напишу.\n" +
+                "Хорошо, пока."
+        );
+        root.addView(scriptText, matchWrap(0, dp(18)));
+
+        Button schedule = new Button(this);
+        schedule.setText("Назначить звонок");
+        schedule.setTextSize(17);
+        schedule.setOnClickListener(v -> scheduleAtSelectedTime());
+        root.addView(schedule, matchWrap(0, dp(10)));
+
+        Button test = new Button(this);
+        test.setText("Тест: позвонить сейчас");
+        test.setOnClickListener(v -> startCallNow());
+        root.addView(test, matchWrap(0, dp(10)));
 
         Button permissions = new Button(this);
         permissions.setText("Проверить разрешения");
         permissions.setOnClickListener(v -> openNeededPermissions());
-        root.addView(permissions, matchWrap(dp(0), dp(18)));
+        root.addView(permissions, matchWrap(0, dp(18)));
 
         statusText = new TextView(this);
-        statusText.setText("Для первого теста нажми «Позвонить сейчас».");
+        statusText.setText("Выбери время и нажми «Назначить звонок».");
         statusText.setTextSize(15);
         statusText.setTextColor(Color.DKGRAY);
         statusText.setGravity(Gravity.CENTER);
-        root.addView(statusText, matchWrap(dp(0), dp(0)));
+        root.addView(statusText);
 
-        setContentView(root);
+        setContentView(scroll);
+    }
+
+    private TextView label(String text) {
+        TextView v = new TextView(this);
+        v.setText(text);
+        v.setTextSize(17);
+        v.setTextColor(Color.BLACK);
+        v.setPadding(0, dp(4), 0, dp(6));
+        return v;
     }
 
     private LinearLayout.LayoutParams matchWrap(int top, int bottom) {
@@ -103,33 +169,73 @@ public class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private void showTimePicker() {
+        TimePickerDialog dialog = new TimePickerDialog(
+                this,
+                (view, hourOfDay, minute) -> {
+                    selectedHour = hourOfDay;
+                    selectedMinute = minute;
+                    updateSelectedTimeText();
+                },
+                selectedHour,
+                selectedMinute,
+                true
+        );
+        dialog.show();
+    }
+
+    private void updateSelectedTimeText() {
+        selectedTimeText.setText(String.format(Locale.getDefault(), "%02d:%02d", selectedHour, selectedMinute));
+    }
+
     private String getCallerName() {
         String value = callerName.getText().toString().trim();
-        return value.isEmpty() ? "Напоминание" : value;
+        return value.isEmpty() ? "Анна" : value;
+    }
+
+    private String getScript() {
+        String value = scriptText.getText().toString().trim();
+        if (value.isEmpty()) {
+            return "Привет, ты можешь сейчас говорить?\nХорошо.\nЛадно, тогда созвонимся позже. Пока.";
+        }
+        return value;
     }
 
     private void startCallNow() {
         Intent intent = new Intent(this, IncomingCallActivity.class);
         intent.putExtra(EXTRA_CALLER, getCallerName());
+        intent.putExtra(EXTRA_SCRIPT, getScript());
         startActivity(intent);
     }
 
-    private void scheduleCallInTenSeconds() {
+    private void scheduleAtSelectedTime() {
         AlarmManager alarmManager = (AlarmManager) getSystemService(ALARM_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            statusText.setText("Разреши «Будильники и напоминания», затем вернись и нажми кнопку снова.");
+            statusText.setText("Сначала разреши «Будильники и напоминания», затем вернись сюда.");
             try {
                 Intent permissionIntent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
                 permissionIntent.setData(Uri.parse("package:" + getPackageName()));
                 startActivity(permissionIntent);
             } catch (Exception e) {
-                Toast.makeText(this, "Открой настройки приложения и разреши точные будильники", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Разреши точные будильники в настройках приложения", Toast.LENGTH_LONG).show();
             }
             return;
         }
 
+        Calendar trigger = Calendar.getInstance();
+        trigger.set(Calendar.HOUR_OF_DAY, selectedHour);
+        trigger.set(Calendar.MINUTE, selectedMinute);
+        trigger.set(Calendar.SECOND, 0);
+        trigger.set(Calendar.MILLISECOND, 0);
+
+        if (trigger.getTimeInMillis() <= System.currentTimeMillis()) {
+            trigger.add(Calendar.DAY_OF_YEAR, 1);
+        }
+
         Intent receiverIntent = new Intent(this, AlarmReceiver.class);
         receiverIntent.putExtra(EXTRA_CALLER, getCallerName());
+        receiverIntent.putExtra(EXTRA_SCRIPT, getScript());
+
         PendingIntent pendingIntent = PendingIntent.getBroadcast(
                 this,
                 1001,
@@ -137,9 +243,14 @@ public class MainActivity extends Activity {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        long triggerAt = System.currentTimeMillis() + 10_000L;
-        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent);
-        statusText.setText("Назначено. Заблокируй экран — примерно через 10 секунд должен появиться звонок.");
+        alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                trigger.getTimeInMillis(),
+                pendingIntent
+        );
+
+        SimpleDateFormat fmt = new SimpleDateFormat("EEE, d MMM, HH:mm", Locale.getDefault());
+        statusText.setText("Звонок назначен на " + fmt.format(trigger.getTime()));
         Toast.makeText(this, "Звонок назначен", Toast.LENGTH_SHORT).show();
     }
 
@@ -181,10 +292,10 @@ public class MainActivity extends Activity {
             NotificationManager manager = getSystemService(NotificationManager.class);
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Локальный звонок",
+                    "Входящие звонки",
                     NotificationManager.IMPORTANCE_HIGH
             );
-            channel.setDescription("Звонок, созданный самим телефоном");
+            channel.setDescription("Запланированный локальный входящий звонок");
             channel.enableVibration(true);
             AudioAttributes attributes = new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
