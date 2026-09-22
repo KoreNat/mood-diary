@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 
 import java.io.*;
@@ -31,6 +32,8 @@ public class MainActivity extends Activity {
     private File processedDir;
     private File songFile;
 
+    private EditText requestBox;
+    private TextView planView;
     private SeekBar cleanupBar;
     private SeekBar brightnessBar;
     private SeekBar bpmBar;
@@ -69,7 +72,7 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("Запишите голос или звуки. Приложение очистит и улучшит запись, а затем может добавить ритм, бас и гармонический фон.");
+        sub.setText("Запишите голос или звуки, затем словами опишите, какую песню хотите получить.");
         sub.setTextSize(16);
         sub.setPadding(0, dp(6), 0, dp(14));
         root.addView(sub);
@@ -78,7 +81,32 @@ public class MainActivity extends Activity {
         recordButton.setOnClickListener(v -> toggleRecord());
         root.addView(recordButton);
 
-        root.addView(sectionTitle("Обработка голоса"));
+        root.addView(sectionTitle("Что сделать"));
+
+        requestBox = new EditText(this);
+        requestBox.setHint("Например: мягкий кантри с пианино и басом, без ударных. Голос сделать чище и звонче.");
+        requestBox.setMinLines(3);
+        requestBox.setMaxLines(6);
+        requestBox.setGravity(Gravity.TOP | Gravity.START);
+        requestBox.setTextSize(16);
+        requestBox.setPadding(dp(12), dp(10), dp(12), dp(10));
+        root.addView(requestBox, new LinearLayout.LayoutParams(-1, dp(120)));
+
+        Button understand = smallButton("Понять запрос");
+        understand.setOnClickListener(v -> {
+            hideKeyboard();
+            StyleInterpreter.Plan plan = SongMaker.interpret(options());
+            planView.setText(plan.summary());
+        });
+        root.addView(understand, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        planView = new TextView(this);
+        planView.setText("Можно писать по-русски или по-английски: стиль, инструменты, темп и пожелания к голосу.");
+        planView.setTextSize(14);
+        planView.setPadding(0, dp(8), 0, dp(10));
+        root.addView(planView);
+
+        root.addView(sectionTitle("Ручные настройки"));
 
         cleanupValue = valueLabel();
         root.addView(labelRow("Очистка шума", cleanupValue));
@@ -91,8 +119,6 @@ public class MainActivity extends Activity {
         brightnessBar = seek(0, 100, 58);
         brightnessBar.setOnSeekBarChangeListener(simpleProgress(brightnessValue, ""));
         root.addView(brightnessBar);
-
-        root.addView(sectionTitle("Сопровождение"));
 
         drumsBox = new CheckBox(this);
         drumsBox.setText("Ударные");
@@ -115,7 +141,13 @@ public class MainActivity extends Activity {
         bpmBar.setOnSeekBarChangeListener(simpleProgress(bpmValue, " BPM"));
         root.addView(bpmBar);
 
-        Button make = bigButton("♫  Обработать и собрать песню");
+        TextView note = new TextView(this);
+        note.setText("Текстовый запрос имеет приоритет над ручными настройками, если в нём прямо указано, что добавить или убрать.");
+        note.setTextSize(13);
+        note.setPadding(0, dp(4), 0, dp(10));
+        root.addView(note);
+
+        Button make = bigButton("♫  Сделать песню по запросу");
         make.setOnClickListener(v -> makeSong());
         root.addView(make);
 
@@ -220,7 +252,8 @@ public class MainActivity extends Activity {
                 drumsBox.isChecked(),
                 bassBox.isChecked(),
                 padBox.isChecked(),
-                bpmBar.getProgress()
+                bpmBar.getProgress(),
+                requestBox == null ? "" : requestBox.getText().toString()
         );
     }
 
@@ -304,8 +337,9 @@ public class MainActivity extends Activity {
 
     private void enhanceAndPlay(File source) {
         SongMaker.Options opts = options();
+        StyleInterpreter.Plan plan = SongMaker.interpret(opts);
         File out = processedFileFor(source);
-        status.setText("Очищаю и улучшаю голос…");
+        status.setText("Обрабатываю голос: очистка " + plan.cleanup + ", яркость " + plan.brightness + "…");
         worker.execute(() -> {
             try {
                 SongMaker.enhanceClip(source, out, opts);
@@ -331,13 +365,16 @@ public class MainActivity extends Activity {
     }
 
     private void makeSong() {
+        hideKeyboard();
         List<File> clips = getClipFiles();
         SongMaker.Options opts = options();
-        status.setText("Обрабатываю голос и собираю аранжировку…");
+        StyleInterpreter.Plan plan = SongMaker.interpret(opts);
+        planView.setText(plan.summary());
+        status.setText("Обрабатываю голос и строю аранжировку…");
         worker.execute(() -> {
             try {
                 SongMaker.makeSong(clips, songFile, opts);
-                runOnUiThread(() -> status.setText("Песня готова: " + prettyDuration(songFile) + "."));
+                runOnUiThread(() -> status.setText("Песня готова: " + prettyDuration(songFile) + ". " + plan.summary()));
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("Не получилось собрать: " + e.getMessage()));
             }
@@ -365,7 +402,7 @@ public class MainActivity extends Activity {
 
     private void exportSong() {
         if (!songFile.exists()) {
-            status.setText("Сначала нажмите «Обработать и собрать песню»");
+            status.setText("Сначала нажмите «Сделать песню по запросу»");
             return;
         }
         worker.execute(() -> {
@@ -395,6 +432,14 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> status.setText("Ошибка сохранения: " + e.getMessage()));
             }
         });
+    }
+
+    private void hideKeyboard() {
+        View v = getCurrentFocus();
+        if (v == null) return;
+        InputMethodManager imm = (InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(v.getWindowToken(), 0);
+        v.clearFocus();
     }
 
     private void stopPlayer() {
