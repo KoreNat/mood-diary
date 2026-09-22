@@ -12,14 +12,16 @@ final class SongMaker {
         final boolean bass;
         final boolean pad;
         final int bpm;
+        final String request;
 
-        Options(int cleanup, int brightness, boolean drums, boolean bass, boolean pad, int bpm) {
+        Options(int cleanup, int brightness, boolean drums, boolean bass, boolean pad, int bpm, String request) {
             this.cleanup = cleanup;
             this.brightness = brightness;
             this.drums = drums;
             this.bass = bass;
             this.pad = pad;
             this.bpm = Math.max(60, Math.min(180, bpm));
+            this.request = request == null ? "" : request;
         }
     }
 
@@ -30,11 +32,24 @@ final class SongMaker {
 
     private SongMaker() {}
 
+    static StyleInterpreter.Plan interpret(Options options) {
+        return StyleInterpreter.parse(
+                options.request,
+                options.cleanup,
+                options.brightness,
+                options.bpm,
+                options.drums,
+                options.bass,
+                options.pad
+        );
+    }
+
     static File enhanceClip(File input, File output, Options options) throws IOException {
+        StyleInterpreter.Plan plan = interpret(options);
         short[] x = WavIO.readPcm16Mono(input);
         x = trimSilence(x);
         x = limitLength(x, MAX_CLIP_SECONDS * SR);
-        x = AudioProcessor.enhance(x, new AudioProcessor.Settings(options.cleanup, options.brightness));
+        x = AudioProcessor.enhance(x, new AudioProcessor.Settings(plan.cleanup, plan.brightness));
         WavIO.writePcm16Mono(output, x);
         return output;
     }
@@ -42,12 +57,13 @@ final class SongMaker {
     static File makeSong(List<File> input, File output, Options options) throws IOException {
         if (input.isEmpty()) throw new IOException("Сначала запишите хотя бы один фрагмент");
 
+        StyleInterpreter.Plan plan = interpret(options);
         List<short[]> clips = new ArrayList<>();
         for (File f : input) {
             short[] x = WavIO.readPcm16Mono(f);
             x = trimSilence(x);
             x = limitLength(x, MAX_CLIP_SECONDS * SR);
-            x = AudioProcessor.enhance(x, new AudioProcessor.Settings(options.cleanup, options.brightness));
+            x = AudioProcessor.enhance(x, new AudioProcessor.Settings(plan.cleanup, plan.brightness));
             if (x.length > SR / 20) clips.add(x);
         }
         if (clips.isEmpty()) throw new IOException("В записях не найден слышимый звук");
@@ -62,8 +78,8 @@ final class SongMaker {
         short[] finale = layeredFinale(clips);
         short[] song = concatWithCrossfade(body, finale, (int)(0.30 * SR));
 
-        if (options.drums || options.bass || options.pad) {
-            song = mixAccompaniment(song, options);
+        if (plan.drums || plan.bass || plan.pad || plan.piano || plan.guitar) {
+            song = mixAccompaniment(song, plan);
         }
 
         song = fadeEdges(song, (int)(0.25 * SR));
@@ -122,56 +138,157 @@ final class SongMaker {
         return doublesToShorts(mix);
     }
 
-    private static short[] mixAccompaniment(short[] voice, Options options) {
+    private static short[] mixAccompaniment(short[] voice, StyleInterpreter.Plan plan) {
         double[] mix = new double[voice.length];
-        for (int i = 0; i < voice.length; i++) mix[i] = voice[i] * 0.88;
+        double voiceGain = plan.energy > 1.1 ? 0.79 : 0.86;
+        for (int i = 0; i < voice.length; i++) mix[i] = voice[i] * voiceGain;
 
-        double beat = SR * 60.0 / options.bpm;
+        double beat = SR * 60.0 / plan.bpm;
         int beats = (int)Math.ceil(voice.length / beat);
         Random random = new Random(260922L);
 
-        if (options.drums) {
+        int[][] chords = chordProgression(plan.style);
+        int[] roots = new int[chords.length];
+        for (int i = 0; i < chords.length; i++) roots[i] = chords[i][0] - 12;
+
+        if (plan.drums) {
             for (int b = 0; b < beats; b++) {
-                int at = (int)Math.round(b * beat);
+                int at = beatPosition(b, beat, plan.swing);
                 int beatInBar = b % 4;
-                if (beatInBar == 0 || beatInBar == 2) addKick(mix, at, 0.25);
-                if (beatInBar == 1 || beatInBar == 3) addSnare(mix, at, 0.16, random);
+                double kickLevel = 0.22 * plan.energy;
+                double snareLevel = 0.14 * plan.energy;
+                double hatLevel = 0.036 * plan.energy;
 
-                int half = (int)Math.round(at + beat / 2.0);
-                addHat(mix, at, 0.045, random);
-                addHat(mix, half, 0.032, random);
+                if ("рок".equals(plan.style)) {
+                    kickLevel *= 1.35; snareLevel *= 1.35; hatLevel *= 1.2;
+                } else if ("джаз".equals(plan.style)) {
+                    kickLevel *= 0.55; snareLevel *= 0.55; hatLevel *= 0.7;
+                } else if ("кантри".equals(plan.style)) {
+                    kickLevel *= 0.85; snareLevel *= 0.8; hatLevel *= 0.8;
+                }
+
+                if (beatInBar == 0 || beatInBar == 2) addKick(mix, at, kickLevel);
+                if (beatInBar == 1 || beatInBar == 3) addSnare(mix, at, snareLevel, random);
+
+                int half = at + (int)Math.round(beat / 2.0);
+                addHat(mix, at, hatLevel, random);
+                addHat(mix, half, hatLevel * 0.72, random);
             }
         }
 
-        if (options.bass) {
-            int[] roots = {36, 33, 29, 31}; // C2, A1, F1, G1
+        if (plan.bass) {
             for (int b = 0; b < beats; b++) {
-                int at = (int)Math.round(b * beat);
+                int at = beatPosition(b, beat, plan.swing);
                 int bar = (b / 4) % roots.length;
-                int midi = roots[bar] + ((b % 4 == 3) ? 7 : 0);
-                addBass(mix, at, beat * 0.86, midiToHz(midi), 0.11);
+                int root = roots[bar];
+                int midi;
+                if ("кантри".equals(plan.style)) {
+                    midi = root + ((b % 2 == 0) ? 0 : 7);
+                } else if ("джаз".equals(plan.style)) {
+                    int[] walk = {0, 4, 7, 9};
+                    midi = root + walk[b % 4];
+                } else {
+                    midi = root + ((b % 4 == 3) ? 7 : 0);
+                }
+                addBass(mix, at, beat * 0.84, midiToHz(midi), 0.095 * plan.energy);
             }
         }
 
-        if (options.pad) {
-            int[][] chords = {
-                    {48, 52, 55}, // C
-                    {45, 48, 52}, // Am
-                    {41, 45, 48}, // F
-                    {43, 47, 50}  // G
-            };
-            double barLength = beat * 4.0;
-            int bars = (int)Math.ceil(voice.length / barLength);
+        double barLength = beat * 4.0;
+        int bars = (int)Math.ceil(voice.length / barLength);
+
+        if (plan.pad) {
             for (int bar = 0; bar < bars; bar++) {
                 int at = (int)Math.round(bar * barLength);
                 int[] chord = chords[bar % chords.length];
                 for (int midi : chord) {
-                    addPadNote(mix, at, barLength * 0.95, midiToHz(midi), 0.025);
+                    addPadNote(mix, at, barLength * 0.96, midiToHz(midi), 0.020 * plan.energy);
+                }
+            }
+        }
+
+        if (plan.piano) {
+            for (int b = 0; b < beats; b++) {
+                int at = beatPosition(b, beat, plan.swing);
+                int bar = (b / 4) % chords.length;
+                int[] chord = chords[bar];
+                double level = 0.050 * plan.energy;
+                if ("баллада".equals(plan.style)) level *= 1.15;
+                if ("джаз".equals(plan.style)) level *= 1.10;
+
+                if ("джаз".equals(plan.style) && b % 2 == 1) {
+                    for (int midi : chord) addPianoNote(mix, at, beat * 0.90, midiToHz(midi), level);
+                } else if (b % 2 == 0 || "баллада".equals(plan.style)) {
+                    int index = b % chord.length;
+                    addPianoNote(mix, at, beat * 0.86, midiToHz(chord[index]), level);
+                    if ("баллада".equals(plan.style)) {
+                        addPianoNote(mix, at, beat * 1.65, midiToHz(chord[(index + 1) % chord.length] + 12), level * 0.55);
+                    }
+                }
+            }
+        }
+
+        if (plan.guitar) {
+            for (int b = 0; b < beats; b++) {
+                int at = beatPosition(b, beat, plan.swing);
+                int bar = (b / 4) % chords.length;
+                int[] chord = chords[bar];
+                double level = 0.032 * plan.energy;
+                if ("рок".equals(plan.style)) level *= 1.45;
+                if ("кантри".equals(plan.style)) level *= 1.20;
+
+                if ("кантри".equals(plan.style)) {
+                    addGuitarStrum(mix, at, beat * 0.68, chord, level, random, b % 2 == 0);
+                    int off = at + (int)(beat * 0.5);
+                    addGuitarStrum(mix, off, beat * 0.40, chord, level * 0.72, random, false);
+                } else if ("рок".equals(plan.style)) {
+                    addGuitarStrum(mix, at, beat * 0.72, chord, level, random, true);
+                } else {
+                    if (b % 2 == 0) addGuitarStrum(mix, at, beat * 0.80, chord, level, random, true);
                 }
             }
         }
 
         return doublesToShorts(mix);
+    }
+
+    private static int[][] chordProgression(String style) {
+        if ("кантри".equals(style)) {
+            return new int[][]{
+                    {48, 52, 55}, // C
+                    {53, 57, 60}, // F
+                    {55, 59, 62}, // G
+                    {48, 52, 55}  // C
+            };
+        }
+        if ("джаз".equals(style)) {
+            return new int[][]{
+                    {50, 53, 57, 60}, // Dm7
+                    {55, 59, 62, 65}, // G7-ish
+                    {48, 52, 55, 59}, // Cmaj7
+                    {45, 48, 52, 55}  // Am7
+            };
+        }
+        if ("рок".equals(style)) {
+            return new int[][]{
+                    {48, 55, 60},
+                    {46, 53, 58},
+                    {53, 60, 65},
+                    {55, 62, 67}
+            };
+        }
+        return new int[][]{
+                {48, 52, 55}, // C
+                {45, 48, 52}, // Am
+                {41, 45, 48}, // F
+                {43, 47, 50}  // G
+        };
+    }
+
+    private static int beatPosition(int beatIndex, double beat, boolean swing) {
+        double p = beatIndex * beat;
+        if (swing && (beatIndex % 2 == 1)) p += beat * 0.10;
+        return (int)Math.round(p);
     }
 
     private static void addKick(double[] mix, int at, double level) {
@@ -244,13 +361,60 @@ final class SongMaker {
         }
     }
 
+    private static void addPianoNote(double[] mix, int at, double lengthSamples, double hz, double level) {
+        int n = Math.min((int)lengthSamples, mix.length - at);
+        if (n <= 0) return;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double)SR;
+            double attack = Math.min(1.0, t / 0.006);
+            double decay = Math.exp(-t * 3.1);
+            double hammer = Math.exp(-t * 30.0);
+            double s =
+                    Math.sin(2.0 * Math.PI * hz * t)
+                    + 0.46 * Math.sin(2.0 * Math.PI * hz * 2.01 * t)
+                    + 0.20 * Math.sin(2.0 * Math.PI * hz * 3.99 * t)
+                    + 0.08 * Math.sin(2.0 * Math.PI * hz * 7.1 * t) * hammer;
+            mix[at + i] += s * attack * decay * level * 32767.0;
+        }
+    }
+
+    private static void addGuitarStrum(double[] mix, int at, double lengthSamples, int[] chord,
+                                       double level, Random random, boolean down) {
+        int stringDelay = (int)(0.012 * SR);
+        for (int s = 0; s < chord.length; s++) {
+            int idx = down ? s : (chord.length - 1 - s);
+            int noteAt = at + s * stringDelay;
+            double hz = midiToHz(chord[idx] + 12);
+            addPluckedString(mix, noteAt, lengthSamples, hz, level / Math.sqrt(chord.length), random);
+        }
+    }
+
+    private static void addPluckedString(double[] mix, int at, double lengthSamples, double hz,
+                                         double level, Random random) {
+        int n = Math.min((int)lengthSamples, mix.length - at);
+        if (n <= 0) return;
+        int period = Math.max(2, (int)Math.round(SR / hz));
+        double[] ring = new double[period];
+        for (int i = 0; i < period; i++) ring[i] = random.nextDouble() * 2.0 - 1.0;
+        int pos = 0;
+        for (int i = 0; i < n; i++) {
+            double current = ring[pos];
+            double next = ring[(pos + 1) % period];
+            ring[pos] = 0.493 * (current + next);
+            pos = (pos + 1) % period;
+            double t = i / (double)SR;
+            double env = Math.exp(-t * 2.8);
+            mix[at + i] += current * env * level * 32767.0;
+        }
+    }
+
     private static double midiToHz(int midi) {
         return 440.0 * Math.pow(2.0, (midi - 69) / 12.0);
     }
 
     private static short[] master(short[] x) {
         double[] y = new double[x.length];
-        double peak = 1.0;
+        double peak = 1e-9;
         for (int i = 0; i < x.length; i++) {
             double v = Math.tanh((x[i] / 32768.0) * 1.12) / Math.tanh(1.12);
             y[i] = v;
