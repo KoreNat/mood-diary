@@ -38,10 +38,11 @@ final class MelodyAnalyzer {
     }
 
     private static final int SR = WavIO.SAMPLE_RATE;
-    private static final int DS = 4;
+    // Aggressive downsampling keeps pitch detection fast enough for a phone.
+    private static final int DS = 8;
     private static final int DSR = SR / DS;
-    private static final int FRAME = 1024;
-    private static final int HOP = 512;
+    private static final int FRAME = 512;
+    private static final int HOP = 384;
 
     private MelodyAnalyzer() {}
 
@@ -50,7 +51,7 @@ final class MelodyAnalyzer {
             return new Result(false, 0, false, new int[0], new ArrayList<>());
         }
 
-        int maxSamples = Math.min(pcm.length, SR * 45);
+        int maxSamples = Math.min(pcm.length, SR * 30);
         int n = maxSamples / DS;
         double[] x = new double[n];
         for (int i = 0; i < n; i++) x[i] = pcm[i * DS] / 32768.0;
@@ -77,10 +78,10 @@ final class MelodyAnalyzer {
                 energy += v * v;
             }
             double rms = Math.sqrt(energy / FRAME);
-            if (rms < 0.012) continue;
+            if (rms < 0.014) continue;
 
             Pitch p = detectPitch(x, start, mean);
-            if (p.hz < 75.0 || p.hz > 1100.0 || p.confidence < 0.44) continue;
+            if (p.hz < 75.0 || p.hz > 1000.0 || p.confidence < 0.46) continue;
 
             int midi = (int)Math.round(69.0 + 12.0 * Math.log(p.hz / 440.0) / Math.log(2.0));
             if (midi < 30 || midi > 96) continue;
@@ -150,7 +151,7 @@ final class MelodyAnalyzer {
     }
 
     private static Pitch detectPitch(double[] x, int start, double mean) {
-        int minLag = Math.max(2, DSR / 1100);
+        int minLag = Math.max(2, DSR / 1000);
         int maxLag = Math.min(FRAME / 2, DSR / 75);
         double best = -1.0;
         int bestLag = -1;
