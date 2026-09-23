@@ -11,13 +11,13 @@ public class AlarmReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String caller = intent.getStringExtra(MainActivity.EXTRA_CALLER);
-        String script = intent.getStringExtra(MainActivity.EXTRA_SCRIPT);
-        if (caller == null || caller.trim().isEmpty()) caller = "Анна";
-        if (script == null) script = "";
+        if (caller == null || caller.trim().isEmpty()) {
+            caller = context.getSharedPreferences(MainActivity.PREFS, Context.MODE_PRIVATE)
+                    .getString("caller", "Анна");
+        }
 
         Intent fullScreenIntent = new Intent(context, IncomingCallActivity.class);
         fullScreenIntent.putExtra(MainActivity.EXTRA_CALLER, caller);
-        fullScreenIntent.putExtra(MainActivity.EXTRA_SCRIPT, script);
         fullScreenIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
 
         PendingIntent fullScreenPendingIntent = PendingIntent.getActivity(
