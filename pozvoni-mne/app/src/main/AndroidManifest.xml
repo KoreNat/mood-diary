@@ -5,10 +5,6 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-    <uses-permission android:name="android.permission.SEND_SMS" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <application
         android:allowBackup="false"
@@ -17,14 +13,14 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
-            android:name=".IncomingCallActivity"
+            android:name="com.korenat.pozvonimne.IncomingCallActivity"
             android:excludeFromRecents="true"
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 
         <activity
-            android:name=".MainActivity"
+            android:name="com.korenat.pozvonimne.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -33,7 +29,7 @@
         </activity>
 
         <receiver
-            android:name=".AlarmReceiver"
+            android:name="com.korenat.pozvonimne.AlarmReceiver"
             android:exported="false" />
     </application>
 </manifest>
