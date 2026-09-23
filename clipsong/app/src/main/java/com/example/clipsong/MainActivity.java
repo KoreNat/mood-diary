@@ -425,7 +425,7 @@ public class MainActivity extends Activity {
         File out = new File(clipsDir, "joined_" + stamp + ".wav");
         SongMaker.Options opts = options();
         status.setText("Сшиваю два куска и выравниваю переход…");
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             try {
                 SongMaker.stitchTwo(selected.get(0), selected.get(1), out, opts);
                 runOnUiThread(() -> {
@@ -446,7 +446,7 @@ public class MainActivity extends Activity {
         StyleInterpreter.Plan plan = SongMaker.interpret(opts);
         File out = processedFileFor(source);
         status.setText("Делаю вокал: " + plan.timbre.name().toLowerCase(Locale.ROOT) + "…");
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             try {
                 SongMaker.enhanceClip(source, out, opts);
                 runOnUiThread(() -> {
@@ -471,12 +471,12 @@ public class MainActivity extends Activity {
         activeProgress.setCancelable(false);
         activeProgress.show();
 
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             try {
                 MelodyAnalyzer.Result result = SongMaker.analyzeMelody(source, opts);
                 runOnUiThread(() -> {
                     currentTask = null;
-                    progress.dismiss();
+                    if (activeProgress != null) { activeProgress.dismiss(); activeProgress = null; }
                     status.setText(result.summary());
                     new android.app.AlertDialog.Builder(this)
                             .setTitle("Результат анализа")
@@ -486,7 +486,7 @@ public class MainActivity extends Activity {
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    progress.dismiss();
+                    if (activeProgress != null) { activeProgress.dismiss(); activeProgress = null; }
                     status.setText("Ошибка анализа мелодии: " + e.getMessage());
                     new android.app.AlertDialog.Builder(this)
                             .setTitle("Не удалось распознать мелодию")
@@ -501,7 +501,7 @@ public class MainActivity extends Activity {
     private void transcribe(File source) {
         String key = apiKeyBox.getText().toString();
         status.setText("Распознаю речь…");
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             try {
                 String text = OpenAiClient.transcribe(source, key);
                 runOnUiThread(() -> {
@@ -521,7 +521,7 @@ public class MainActivity extends Activity {
         String text = transcriptBox.getText().toString();
         String instruction = literaryInstructionBox.getText().toString();
         status.setText("Литературно редактирую текст…");
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             try {
                 String edited = OpenAiClient.literaryEdit(text, instruction, key);
                 runOnUiThread(() -> {
@@ -553,7 +553,7 @@ public class MainActivity extends Activity {
         StyleInterpreter.Plan plan = SongMaker.interpret(opts);
         planView.setText(plan.summary());
         status.setText("Распознаю мелодию и строю под неё аранжировку…");
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             try {
                 SongMaker.makeSong(clips, songFile, opts);
                 runOnUiThread(() -> {
@@ -591,7 +591,7 @@ public class MainActivity extends Activity {
             status.setText("Сначала сделайте песню");
             return;
         }
-        worker.execute(() -> {
+        currentTask = worker.submit(() -> {
             String name = "ClipSong_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()) + ".wav";
             ContentValues values = new ContentValues();
             values.put(MediaStore.Audio.Media.DISPLAY_NAME, name);
