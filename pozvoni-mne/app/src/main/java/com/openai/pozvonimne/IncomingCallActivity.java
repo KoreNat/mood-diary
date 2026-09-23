@@ -1,4 +1,4 @@
-package com.openai.pozvonimne;
+package com.korenat.pozvonimne;
 
 import android.Manifest;
 import android.app.Activity;
@@ -10,14 +10,11 @@ import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
-import android.location.Location;
-import android.location.LocationManager;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -29,7 +26,6 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
-import android.telephony.SmsManager;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -41,7 +37,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 
 public class IncomingCallActivity extends Activity {
@@ -54,30 +53,21 @@ public class IncomingCallActivity extends Activity {
 
     private boolean answered = false;
     private boolean scenarioPlayed = false;
-    private boolean voiceListening = false;
     private String caller;
     private TextView timerText;
     private long callStartedAt;
 
     private int emergencyTrigger;
     private int neutralTrigger;
+    private int voiceLanguage;
     private String emergencyWords;
     private String neutralWords;
     private boolean voiceEnabled;
 
     private long lastBackgroundTap = 0L;
     private long lastRedTap = 0L;
-    private boolean pendingSingleBackground = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
-
-    private boolean volumeUpDown = false;
-    private boolean sosTriggered = false;
-    private final Runnable sosRunnable = () -> {
-        if (volumeUpDown && answered) {
-            sosTriggered = true;
-            performSos();
-        }
-    };
+    private Runnable pendingSingleTap;
 
     private final Runnable timerRunnable = new Runnable() {
         @Override
@@ -111,9 +101,10 @@ public class IncomingCallActivity extends Activity {
 
         emergencyTrigger = prefs.getInt("emergency_trigger", 0);
         neutralTrigger = prefs.getInt("neutral_trigger", 1);
-        emergencyWords = prefs.getString("emergency_words", "hello, алло");
-        neutralWords = prefs.getString("neutral_words", "hi, привет");
+        emergencyWords = prefs.getString("emergency_words", "hello, hallo, алло, хэлло");
+        neutralWords = prefs.getString("neutral_words", "hi, high, хай, привет");
         voiceEnabled = prefs.getBoolean("voice_enabled", true);
+        voiceLanguage = prefs.getInt("voice_language", 0);
 
         initTts();
         buildIncomingUi();
@@ -128,7 +119,6 @@ public class IncomingCallActivity extends Activity {
                 if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
                     tts.setLanguage(Locale.getDefault());
                 }
-                tts.setSpeechRate(0.95f);
                 tts.setAudioAttributes(new AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -202,20 +192,17 @@ public class IncomingCallActivity extends Activity {
 
             long now = System.currentTimeMillis();
             if (now - lastBackgroundTap < 420) {
-                lastBackgroundTap = 0;
-                pendingSingleBackground = false;
-                handler.removeCallbacksAndMessages("single_bg");
+                if (pendingSingleTap != null) handler.removeCallbacks(pendingSingleTap);
+                pendingSingleTap = null;
+                lastBackgroundTap = 0L;
                 handleTrigger(3);
             } else {
                 lastBackgroundTap = now;
-                pendingSingleBackground = true;
-                Runnable single = () -> {
-                    if (pendingSingleBackground) {
-                        pendingSingleBackground = false;
-                        handleTrigger(2);
-                    }
+                pendingSingleTap = () -> {
+                    pendingSingleTap = null;
+                    handleTrigger(2);
                 };
-                handler.postDelayed(single, 430);
+                handler.postDelayed(pendingSingleTap, 450);
             }
             return true;
         });
@@ -256,10 +243,7 @@ public class IncomingCallActivity extends Activity {
 
         TextView endLabel = text("Завершить", 14, Color.LTGRAY);
         endLabel.setGravity(Gravity.CENTER);
-        root.addView(endLabel, matchWrap(dp(8), dp(8)));
-
-        TextView hint = text(" ", 12, Color.rgb(24, 28, 35));
-        root.addView(hint);
+        root.addView(endLabel, matchWrap(dp(8), 0));
 
         setContentView(root);
     }
@@ -375,14 +359,14 @@ public class IncomingCallActivity extends Activity {
     private void handleRedButton() {
         long now = System.currentTimeMillis();
         if (now - lastRedTap < 480) {
-            lastRedTap = 0;
+            lastRedTap = 0L;
             handleTrigger(4);
             return;
         }
         lastRedTap = now;
         handler.postDelayed(() -> {
-            if (lastRedTap != 0 && System.currentTimeMillis() - lastRedTap >= 470) {
-                lastRedTap = 0;
+            if (lastRedTap != 0L && System.currentTimeMillis() - lastRedTap >= 470) {
+                lastRedTap = 0L;
                 endCall();
             }
         }, 500);
@@ -400,84 +384,81 @@ public class IncomingCallActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (!answered) return super.onKeyDown(keyCode, event);
-
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            if (event.getRepeatCount() == 0) {
-                volumeUpDown = true;
-                sosTriggered = false;
-                handler.postDelayed(sosRunnable, 3000);
-            }
+            if (event.getRepeatCount() == 0) handleTrigger(0);
             return true;
         }
-
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
             if (event.getRepeatCount() == 0) handleTrigger(1);
             return true;
         }
-
         return super.onKeyDown(keyCode, event);
     }
 
-    @Override
-    public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (answered && keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-            volumeUpDown = false;
-            handler.removeCallbacks(sosRunnable);
-            if (!sosTriggered) handleTrigger(0);
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
-    }
-
     private void startVoiceRecognition() {
-        if (!voiceEnabled || scenarioPlayed) return;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
+        if (!voiceEnabled || scenarioPlayed || !answered) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return;
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
-            } else {
-                return;
-            }
-
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
             speechRecognizer.setRecognitionListener(new RecognitionListener() {
-                @Override public void onReadyForSpeech(Bundle params) { voiceListening = true; }
+                @Override public void onReadyForSpeech(Bundle params) { }
                 @Override public void onBeginningOfSpeech() { }
                 @Override public void onRmsChanged(float rmsdB) { }
                 @Override public void onBufferReceived(byte[] buffer) { }
-                @Override public void onEndOfSpeech() { voiceListening = false; }
-                @Override public void onError(int error) {
-                    voiceListening = false;
-                    if (answered && !scenarioPlayed) handler.postDelayed(IncomingCallActivity.this::restartVoiceRecognition, 900);
-                }
-                @Override public void onResults(Bundle results) {
-                    voiceListening = false;
-                    ArrayList<String> heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (heard != null) {
-                        for (String s : heard) {
-                            String normalized = s.toLowerCase(Locale.getDefault());
-                            if (containsKeyword(normalized, emergencyWords)) {
-                                playScenario(true);
-                                return;
-                            }
-                            if (containsKeyword(normalized, neutralWords)) {
-                                playScenario(false);
-                                return;
-                            }
-                        }
+                @Override public void onEndOfSpeech() { }
+
+                @Override
+                public void onError(int error) {
+                    if (answered && !scenarioPlayed) {
+                        handler.postDelayed(IncomingCallActivity.this::restartVoiceRecognition, 900);
                     }
-                    if (answered && !scenarioPlayed) handler.postDelayed(IncomingCallActivity.this::restartVoiceRecognition, 700);
                 }
+
+                @Override
+                public void onResults(Bundle results) {
+                    ArrayList<String> heard = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    float[] confidences = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+                    int decision = decideScenario(heard, confidences);
+
+                    if (decision == 1) {
+                        playScenario(true);
+                    } else if (decision == 2) {
+                        playScenario(false);
+                    } else if (answered && !scenarioPlayed) {
+                        handler.postDelayed(IncomingCallActivity.this::restartVoiceRecognition, 650);
+                    }
+                }
+
                 @Override public void onPartialResults(Bundle partialResults) { }
                 @Override public void onEvent(int eventType, Bundle params) { }
             });
 
             Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
             i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
             i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
             i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+
+            if (voiceLanguage == 1) {
+                i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US");
+            } else if (voiceLanguage == 2) {
+                i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ru-RU");
+            } else if (voiceLanguage == 3) {
+                i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "nl-NL");
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                ArrayList<String> langs = new ArrayList<>(Arrays.asList("en-US", "ru-RU", "nl-NL"));
+                i.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true);
+                i.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, langs);
+                i.putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, RecognizerIntent.LANGUAGE_SWITCH_BALANCED);
+                i.putStringArrayListExtra(RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, langs);
+            } else {
+                i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag());
+            }
+
             speechRecognizer.startListening(i);
         } catch (Exception ignored) { }
     }
@@ -487,13 +468,79 @@ public class IncomingCallActivity extends Activity {
         startVoiceRecognition();
     }
 
-    private boolean containsKeyword(String heard, String csv) {
-        if (csv == null) return false;
-        for (String raw : csv.split(",")) {
-            String k = raw.trim().toLowerCase(Locale.getDefault());
-            if (!k.isEmpty() && heard.contains(k)) return true;
+    private int decideScenario(ArrayList<String> heard, float[] confidences) {
+        if (heard == null || heard.isEmpty()) return 0;
+
+        double emergencyScore = 0.0;
+        double neutralScore = 0.0;
+
+        int count = Math.min(heard.size(), 5);
+        for (int idx = 0; idx < count; idx++) {
+            String candidate = normalize(heard.get(idx));
+            if (candidate.isEmpty()) continue;
+
+            double rankWeight;
+            if (idx == 0) rankWeight = 1.0;
+            else if (idx == 1) rankWeight = 0.55;
+            else rankWeight = 0.30 / idx;
+
+            double confidence = 0.72;
+            if (confidences != null && idx < confidences.length && confidences[idx] >= 0f) {
+                confidence = confidences[idx];
+            }
+
+            emergencyScore = Math.max(
+                    emergencyScore,
+                    keywordMatchScore(candidate, emergencyWords) * rankWeight * (0.55 + 0.45 * confidence)
+            );
+            neutralScore = Math.max(
+                    neutralScore,
+                    keywordMatchScore(candidate, neutralWords) * rankWeight * (0.55 + 0.45 * confidence)
+            );
         }
-        return false;
+
+        double best = Math.max(emergencyScore, neutralScore);
+        if (best < 4.0) return 0;
+
+        double gap = Math.abs(emergencyScore - neutralScore);
+        if (emergencyScore > 0 && neutralScore > 0 && gap < 1.25) {
+            return 0;
+        }
+
+        return emergencyScore > neutralScore ? 1 : 2;
+    }
+
+    private double keywordMatchScore(String candidate, String csv) {
+        if (csv == null) return 0.0;
+        double best = 0.0;
+
+        for (String raw : csv.split(",")) {
+            String keyword = normalize(raw);
+            if (keyword.isEmpty()) continue;
+
+            if (candidate.equals(keyword)) {
+                best = Math.max(best, 10.0);
+                continue;
+            }
+
+            String padded = " " + candidate + " ";
+            String needle = " " + keyword + " ";
+            if (padded.contains(needle)) {
+                best = Math.max(best, 7.0);
+            }
+        }
+
+        return best;
+    }
+
+    private String normalize(String value) {
+        if (value == null) return "";
+        String s = Normalizer.normalize(value, Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                .trim()
+                .replaceAll("\\s+", " ");
+        return s;
     }
 
     private void stopVoiceRecognition() {
@@ -502,7 +549,6 @@ public class IncomingCallActivity extends Activity {
             try { speechRecognizer.destroy(); } catch (Exception ignored) { }
             speechRecognizer = null;
         }
-        voiceListening = false;
     }
 
     private File recordingFile(boolean emergency) {
@@ -535,68 +581,16 @@ public class IncomingCallActivity extends Activity {
 
         if (tts != null) {
             String phrase = emergency
-                    ? "Слушай, приезжай скорее. У тебя дома вода, похоже соседи сверху затопили квартиру. Ты можешь сейчас приехать?"
+                    ? "Слушай, срочно приезжай. У тебя дома вода, похоже соседи сверху затопили квартиру. Ты можешь сейчас приехать?"
                     : "Привет! Как дела? Я хотела тебя кое о чём спросить.";
             tts.setPitch(emergency ? 1.08f : 1.0f);
-            tts.setSpeechRate(emergency ? 1.08f : 0.96f);
-            tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, "scenario");
+            tts.setSpeechRate(emergency ? 1.10f : 0.96f);
+            tts.speak(phrase, TextToSpeech.QUEUE_FLUSH, null, emergency ? "emergency" : "neutral");
         }
-    }
-
-    private void performSos() {
-        Toast.makeText(this, "SOS", Toast.LENGTH_SHORT).show();
-
-        String primary = prefs.getString("sos_primary", "").trim();
-        String recipients = prefs.getString("sos_recipients", "").trim();
-
-        String locationText = lastKnownLocationText();
-        String message = "SOS. Мне нужна помощь. " + locationText;
-
-        if (checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
-            SmsManager sm = SmsManager.getDefault();
-            for (String raw : recipients.split(",")) {
-                String number = raw.trim();
-                if (number.isEmpty()) continue;
-                try {
-                    ArrayList<String> parts = sm.divideMessage(message);
-                    sm.sendMultipartTextMessage(number, null, parts, null, null);
-                } catch (Exception ignored) { }
-            }
-        }
-
-        if (!primary.isEmpty() &&
-                checkSelfPermission(Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
-            try {
-                Intent call = new Intent(Intent.ACTION_CALL, Uri.parse("tel:" + Uri.encode(primary)));
-                startActivity(call);
-            } catch (Exception ignored) { }
-        }
-    }
-
-    private String lastKnownLocationText() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return "Геолокация недоступна.";
-        }
-
-        try {
-            LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
-            Location best = null;
-            for (String provider : lm.getProviders(true)) {
-                Location loc = lm.getLastKnownLocation(provider);
-                if (loc != null && (best == null || loc.getTime() > best.getTime())) best = loc;
-            }
-            if (best != null) {
-                return "Моё местоположение: https://maps.google.com/?q=" +
-                        best.getLatitude() + "," + best.getLongitude();
-            }
-        } catch (Exception ignored) { }
-        return "Геолокация пока не определилась.";
     }
 
     private void endCall() {
         answered = false;
-        volumeUpDown = false;
         handler.removeCallbacksAndMessages(null);
         stopVoiceRecognition();
         stopRinging();
