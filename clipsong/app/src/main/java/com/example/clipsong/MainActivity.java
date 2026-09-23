@@ -447,12 +447,36 @@ public class MainActivity extends Activity {
     private void analyzeMelody(File source) {
         SongMaker.Options opts = options();
         status.setText("Распознаю высоту нот и тональность…");
+        Toast.makeText(this, "Распознаю мелодию…", Toast.LENGTH_SHORT).show();
+
+        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
+        progress.setMessage("Распознаю мелодию…");
+        progress.setIndeterminate(true);
+        progress.setCancelable(false);
+        progress.show();
+
         worker.execute(() -> {
             try {
                 MelodyAnalyzer.Result result = SongMaker.analyzeMelody(source, opts);
-                runOnUiThread(() -> status.setText(result.summary()));
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    status.setText(result.summary());
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle("Результат анализа")
+                            .setMessage(result.summary())
+                            .setPositiveButton("OK", null)
+                            .show();
+                });
             } catch (Exception e) {
-                runOnUiThread(() -> status.setText("Ошибка анализа мелодии: " + e.getMessage()));
+                runOnUiThread(() -> {
+                    progress.dismiss();
+                    status.setText("Ошибка анализа мелодии: " + e.getMessage());
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle("Не удалось распознать мелодию")
+                            .setMessage(e.getMessage())
+                            .setPositiveButton("OK", null)
+                            .show();
+                });
             }
         });
     }
@@ -513,12 +537,10 @@ public class MainActivity extends Activity {
         worker.execute(() -> {
             try {
                 SongMaker.makeSong(clips, songFile, opts);
-                MelodyAnalyzer.Result melody = clips.isEmpty()
-                        ? null
-                        : SongMaker.analyzeMelody(clips.get(0), opts);
-                runOnUiThread(() -> status.setText(
-                        "Песня готова: " + prettyDuration(songFile)
-                                + (melody == null ? "" : ". " + melody.summary())));
+                runOnUiThread(() -> {
+                    status.setText("Песня готова: " + prettyDuration(songFile));
+                    Toast.makeText(this, "Песня готова", Toast.LENGTH_LONG).show();
+                });
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("Не получилось собрать: " + e.getMessage()));
             }
