@@ -26,6 +26,7 @@ public class MainActivity extends Activity {
     private static final int REQ_MIC = 10;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private volatile Future<?> currentTask;
+    private android.app.ProgressDialog activeProgress;
     private final LinkedHashSet<String> stitchSelection = new LinkedHashSet<>();
 
     private AudioRecorder recorder;
@@ -464,11 +465,11 @@ public class MainActivity extends Activity {
         status.setText("Распознаю высоту нот и тональность…");
         Toast.makeText(this, "Распознаю мелодию…", Toast.LENGTH_SHORT).show();
 
-        final android.app.ProgressDialog progress = new android.app.ProgressDialog(this);
-        progress.setMessage("Распознаю мелодию…");
-        progress.setIndeterminate(true);
-        progress.setCancelable(false);
-        progress.show();
+        activeProgress = new android.app.ProgressDialog(this);
+        activeProgress.setMessage("Распознаю мелодию…");
+        activeProgress.setIndeterminate(true);
+        activeProgress.setCancelable(false);
+        activeProgress.show();
 
         worker.execute(() -> {
             try {
@@ -638,6 +639,10 @@ public class MainActivity extends Activity {
         if (task != null && !task.isDone()) {
             task.cancel(true);
             currentTask = null;
+        }
+        if (activeProgress != null) {
+            try { activeProgress.dismiss(); } catch (Exception ignored) {}
+            activeProgress = null;
         }
 
         status.setText("Остановлено");
