@@ -13,8 +13,9 @@ final class SongMaker {
         final boolean pad;
         final int bpm;
         final String request;
+        final boolean instrumental;
 
-        Options(int cleanup, int brightness, boolean drums, boolean bass, boolean pad, int bpm, String request) {
+        Options(int cleanup, int brightness, boolean drums, boolean bass, boolean pad, int bpm, String request, boolean instrumental) {
             this.cleanup = cleanup;
             this.brightness = brightness;
             this.drums = drums;
@@ -22,6 +23,7 @@ final class SongMaker {
             this.pad = pad;
             this.bpm = Math.max(60, Math.min(180, bpm));
             this.request = request == null ? "" : request;
+            this.instrumental = instrumental;
         }
     }
 
@@ -40,7 +42,8 @@ final class SongMaker {
                 options.bpm,
                 options.drums,
                 options.bass,
-                options.pad
+                options.pad,
+                options.instrumental
         );
     }
 
@@ -60,6 +63,7 @@ final class SongMaker {
         StyleInterpreter.Plan plan = interpret(options);
         List<short[]> clips = new ArrayList<>();
         for (File f : input) {
+            if (Thread.currentThread().isInterrupted()) throw new IOException("Операция остановлена");
             short[] x = WavIO.readPcm16Mono(f);
             x = trimSilence(x);
             x = limitLength(x, MAX_CLIP_SECONDS * SR);
@@ -79,7 +83,10 @@ final class SongMaker {
         short[] song = concatWithCrossfade(body, finale, (int)(0.30 * SR));
 
         MelodyAnalyzer.Result melody = MelodyAnalyzer.analyze(song, plan.bpm);
-        if (plan.drums || plan.bass || plan.pad || plan.piano || plan.guitar) {
+        if (plan.instrumental && (melody == null || !melody.found || melody.notes.isEmpty())) {
+            throw new IOException("Не удалось уверенно распознать мелодию, поэтому убрать голос пока нельзя");
+        }
+        if (plan.drums || plan.bass || plan.pad || plan.piano || plan.guitar || plan.instrumental) {
             song = mixAccompaniment(song, plan, melody);
         }
 
@@ -141,7 +148,7 @@ final class SongMaker {
 
     private static short[] mixAccompaniment(short[] voice, StyleInterpreter.Plan plan, MelodyAnalyzer.Result melody) {
         double[] mix = new double[voice.length];
-        double voiceGain = plan.energy > 1.1 ? 0.79 : 0.86;
+        double voiceGain = plan.instrumental ? 0.0 : (plan.energy > 1.1 ? 0.79 : 0.86);
         for (int i = 0; i < voice.length; i++) mix[i] = voice[i] * voiceGain;
 
         double beat = SR * 60.0 / plan.bpm;
@@ -149,11 +156,15 @@ final class SongMaker {
         Random random = new Random(260922L);
 
         int[][] chords = chordProgression(plan.style, melody);
+        if (plan.instrumental && melody != null && melody.found && !melody.notes.isEmpty()) {
+            addLeadMelody(mix, melody.notes, 0.18 * plan.energy);
+        }
         int[] roots = new int[chords.length];
         for (int i = 0; i < chords.length; i++) roots[i] = chords[i][0] - 12;
 
         if (plan.drums) {
             for (int b = 0; b < beats; b++) {
+                if (Thread.currentThread().isInterrupted()) return doublesToShorts(mix);
                 int at = beatPosition(b, beat, plan.swing);
                 int beatInBar = b % 4;
                 double kickLevel = 0.22 * plan.energy;
@@ -200,6 +211,7 @@ final class SongMaker {
 
         if (plan.pad) {
             for (int bar = 0; bar < bars; bar++) {
+                if (Thread.currentThread().isInterrupted()) return doublesToShorts(mix);
                 int at = (int)Math.round(bar * barLength);
                 int[] chord = chords[bar % chords.length];
                 for (int midi : chord) {
@@ -450,6 +462,34 @@ final class SongMaker {
             double t = i / (double)SR;
             double env = Math.exp(-t * 2.8);
             mix[at + i] += current * env * level * 32767.0;
+        }
+    }
+
+    private static void addLeadMelody(double[] mix, List<Integer> notes, double level) {
+        if (notes == null || notes.isEmpty() || mix.length == 0) return;
+        double segment = mix.length / (double)notes.size();
+        for (int n = 0; n < notes.size(); n++) {
+            if (Thread.currentThread().isInterrupted()) return;
+            int at = (int)Math.round(n * segment);
+            int len = Math.max((int)(0.16 * SR), (int)Math.round(segment * 0.92));
+            len = Math.min(len, mix.length - at);
+            if (len <= 0) continue;
+            addLeadNote(mix, at, len, midiToHz(notes.get(n)), level);
+        }
+    }
+
+    private static void addLeadNote(double[] mix, int at, int n, double hz, double level) {
+        for (int i = 0; i < n; i++) {
+            double t = i / (double)SR;
+            double life = i / (double)Math.max(1, n - 1);
+            double attack = Math.min(1.0, t / 0.025);
+            double release = Math.min(1.0, (1.0 - life) / 0.10);
+            double env = attack * Math.max(0.0, release);
+            double phase = 2.0 * Math.PI * hz * t;
+            double s = Math.sin(phase)
+                    + 0.28 * Math.sin(phase * 2.0)
+                    + 0.10 * Math.sin(phase * 3.0);
+            mix[at + i] += s * env * level * 32767.0;
         }
     }
 
