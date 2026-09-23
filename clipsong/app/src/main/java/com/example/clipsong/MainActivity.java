@@ -9,6 +9,7 @@ import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
@@ -23,6 +24,8 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     private static final int REQ_MIC = 10;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final LinkedHashSet<String> stitchSelection = new LinkedHashSet<>();
+
     private AudioRecorder recorder;
     private MediaPlayer player;
     private LinearLayout clipsBox;
@@ -43,6 +46,10 @@ public class MainActivity extends Activity {
     private CheckBox drumsBox;
     private CheckBox bassBox;
     private CheckBox padBox;
+
+    private EditText apiKeyBox;
+    private EditText transcriptBox;
+    private EditText literaryInstructionBox;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -65,14 +72,14 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("ClipSong");
+        title.setText("ClipSong 0.4");
         title.setTextSize(32);
         title.setTextColor(Color.BLACK);
         title.setTypeface(null, 1);
         root.addView(title);
 
         TextView sub = new TextView(this);
-        sub.setText("Запишите голос или звуки, затем словами опишите, какую песню хотите получить.");
+        sub.setText("Записывайте куски, сшивайте их, улучшайте вокал, распознавайте слова и мелодию, затем стройте музыку по самой мелодии.");
         sub.setTextSize(16);
         sub.setPadding(0, dp(6), 0, dp(14));
         root.addView(sub);
@@ -81,10 +88,9 @@ public class MainActivity extends Activity {
         recordButton.setOnClickListener(v -> toggleRecord());
         root.addView(recordButton);
 
-        root.addView(sectionTitle("Что сделать"));
-
+        root.addView(sectionTitle("Музыкальный запрос"));
         requestBox = new EditText(this);
-        requestBox.setHint("Например: мягкий кантри с пианино и басом, без ударных. Голос сделать чище и звонче.");
+        requestBox.setHint("Например: тёплый глубокий вокал, мягкое пианино и бас, без ударных; музыку подстроить под мою мелодию.");
         requestBox.setMinLines(3);
         requestBox.setMaxLines(6);
         requestBox.setGravity(Gravity.TOP | Gravity.START);
@@ -95,19 +101,17 @@ public class MainActivity extends Activity {
         Button understand = smallButton("Понять запрос");
         understand.setOnClickListener(v -> {
             hideKeyboard();
-            StyleInterpreter.Plan plan = SongMaker.interpret(options());
-            planView.setText(plan.summary());
+            planView.setText(SongMaker.interpret(options()).summary());
         });
         root.addView(understand, new LinearLayout.LayoutParams(-1, dp(48)));
 
         planView = new TextView(this);
-        planView.setText("Можно писать по-русски или по-английски: стиль, инструменты, темп и пожелания к голосу.");
+        planView.setText("Можно описывать стиль, инструменты, тембр голоса, reverb и характер звучания.");
         planView.setTextSize(14);
         planView.setPadding(0, dp(8), 0, dp(10));
         root.addView(planView);
 
         root.addView(sectionTitle("Ручные настройки"));
-
         cleanupValue = valueLabel();
         root.addView(labelRow("Очистка шума", cleanupValue));
         cleanupBar = seek(0, 100, 68);
@@ -141,19 +145,12 @@ public class MainActivity extends Activity {
         bpmBar.setOnSeekBarChangeListener(simpleProgress(bpmValue, " BPM"));
         root.addView(bpmBar);
 
-        TextView note = new TextView(this);
-        note.setText("Текстовый запрос имеет приоритет над ручными настройками, если в нём прямо указано, что добавить или убрать.");
-        note.setTextSize(13);
-        note.setPadding(0, dp(4), 0, dp(10));
-        root.addView(note);
-
-        Button make = bigButton("♫  Сделать песню по запросу");
+        Button make = bigButton("♫  Сделать музыку по мелодии");
         make.setOnClickListener(v -> makeSong());
         root.addView(make);
 
         LinearLayout songActions = new LinearLayout(this);
         songActions.setOrientation(LinearLayout.HORIZONTAL);
-        songActions.setGravity(Gravity.CENTER_VERTICAL);
         Button playSong = smallButton("▶ Песня");
         Button export = smallButton("Сохранить WAV");
         playSong.setOnClickListener(v -> playFile(songFile));
@@ -162,6 +159,29 @@ public class MainActivity extends Activity {
         songActions.addView(export, new LinearLayout.LayoutParams(0, dp(48), 1));
         root.addView(songActions);
 
+        root.addView(sectionTitle("Распознавание и литературная редактура"));
+        apiKeyBox = new EditText(this);
+        apiKeyBox.setHint("OpenAI API key (нужен только для текста)");
+        apiKeyBox.setSingleLine(true);
+        apiKeyBox.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        root.addView(apiKeyBox, new LinearLayout.LayoutParams(-1, dp(54)));
+
+        transcriptBox = new EditText(this);
+        transcriptBox.setHint("Здесь появится распознанный текст. Его можно исправлять вручную.");
+        transcriptBox.setMinLines(4);
+        transcriptBox.setGravity(Gravity.TOP | Gravity.START);
+        root.addView(transcriptBox, new LinearLayout.LayoutParams(-1, dp(150)));
+
+        literaryInstructionBox = new EditText(this);
+        literaryInstructionBox.setHint("Например: сделай литературнее, убери повторы, сохрани мою интонацию и все факты.");
+        literaryInstructionBox.setMinLines(2);
+        literaryInstructionBox.setGravity(Gravity.TOP | Gravity.START);
+        root.addView(literaryInstructionBox, new LinearLayout.LayoutParams(-1, dp(92)));
+
+        Button literary = bigButton("✎  Литературно обработать текст");
+        literary.setOnClickListener(v -> literaryEdit());
+        root.addView(literary);
+
         status = new TextView(this);
         status.setText("Готово к записи");
         status.setTextSize(14);
@@ -169,6 +189,10 @@ public class MainActivity extends Activity {
         root.addView(status);
 
         root.addView(sectionTitle("Фрагменты"));
+        Button stitch = bigButton("Сшить выбранные 2 фрагмента");
+        stitch.setOnClickListener(v -> stitchSelected());
+        root.addView(stitch);
+
         clipsBox = new LinearLayout(this);
         clipsBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(clipsBox);
@@ -223,15 +247,15 @@ public class MainActivity extends Activity {
     }
 
     private void updateLabels() {
-        cleanupValue.setText(cleanupBar.getProgress() + "");
-        brightnessValue.setText(brightnessBar.getProgress() + "");
+        cleanupValue.setText(String.valueOf(cleanupBar.getProgress()));
+        brightnessValue.setText(String.valueOf(brightnessBar.getProgress()));
         bpmValue.setText(bpmBar.getProgress() + " BPM");
     }
 
     private Button bigButton(String text) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextSize(18);
+        b.setTextSize(17);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
         p.setMargins(0, 0, 0, dp(10));
         b.setLayoutParams(p);
@@ -241,7 +265,7 @@ public class MainActivity extends Activity {
     private Button smallButton(String text) {
         Button b = new Button(this);
         b.setText(text);
-        b.setTextSize(14);
+        b.setTextSize(13);
         return b;
     }
 
@@ -275,7 +299,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     recordButton.setEnabled(true);
                     recordButton.setText("●  Записать фрагмент");
-                    status.setText("Записано: " + prettyDuration(file) + ". Можно улучшить и прослушать.");
+                    status.setText("Записано: " + prettyDuration(file));
                     refreshClips();
                 });
             }
@@ -294,61 +318,176 @@ public class MainActivity extends Activity {
     private void refreshClips() {
         clipsBox.removeAllViews();
         List<File> files = getClipFiles();
+        stitchSelection.retainAll(fileNames(files));
         if (files.isEmpty()) {
             TextView empty = new TextView(this);
             empty.setText("Пока пусто. Запишите первый звук.");
-            empty.setTextSize(15);
             clipsBox.addView(empty);
             return;
         }
+
         for (int i = 0; i < files.size(); i++) {
             File f = files.get(i);
             LinearLayout block = new LinearLayout(this);
             block.setOrientation(LinearLayout.VERTICAL);
-            block.setPadding(0, dp(4), 0, dp(6));
+            block.setPadding(0, dp(6), 0, dp(8));
 
+            LinearLayout head = new LinearLayout(this);
+            head.setOrientation(LinearLayout.HORIZONTAL);
             TextView label = new TextView(this);
-            label.setText((i + 1) + ".  " + prettyDuration(f));
-            label.setTextSize(16);
-            block.addView(label);
+            label.setText((i + 1) + ". " + prettyDuration(f) + "   " + f.getName());
+            label.setTextSize(15);
+            CheckBox select = new CheckBox(this);
+            select.setText("Сшить");
+            select.setChecked(stitchSelection.contains(f.getName()));
+            select.setOnCheckedChangeListener((button, checked) -> {
+                if (checked) {
+                    if (stitchSelection.size() >= 2) {
+                        button.setChecked(false);
+                        status.setText("Для сшивания выберите ровно два фрагмента");
+                    } else {
+                        stitchSelection.add(f.getName());
+                    }
+                } else {
+                    stitchSelection.remove(f.getName());
+                }
+            });
+            head.addView(label, new LinearLayout.LayoutParams(0, dp(48), 1));
+            head.addView(select, new LinearLayout.LayoutParams(dp(100), dp(48)));
+            block.addView(head);
 
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout row1 = new LinearLayout(this);
+            row1.setOrientation(LinearLayout.HORIZONTAL);
             Button raw = smallButton("▶ Оригинал");
-            Button enhanced = smallButton("✨ Улучшить");
+            Button enhanced = smallButton("✨ Вокал");
             Button del = smallButton("Удалить");
-
             raw.setOnClickListener(v -> playFile(f));
             enhanced.setOnClickListener(v -> enhanceAndPlay(f));
             del.setOnClickListener(v -> {
                 stopPlayer();
-                File processed = processedFileFor(f);
-                processed.delete();
+                stitchSelection.remove(f.getName());
+                processedFileFor(f).delete();
                 if (f.delete()) refreshClips();
             });
+            row1.addView(raw, new LinearLayout.LayoutParams(0, dp(48), 1));
+            row1.addView(enhanced, new LinearLayout.LayoutParams(0, dp(48), 1));
+            row1.addView(del, new LinearLayout.LayoutParams(0, dp(48), 1));
+            block.addView(row1);
 
-            row.addView(raw, new LinearLayout.LayoutParams(0, dp(50), 1));
-            row.addView(enhanced, new LinearLayout.LayoutParams(0, dp(50), 1));
-            row.addView(del, new LinearLayout.LayoutParams(dp(90), dp(50)));
-            block.addView(row);
+            LinearLayout row2 = new LinearLayout(this);
+            row2.setOrientation(LinearLayout.HORIZONTAL);
+            Button text = smallButton("Текст");
+            Button melody = smallButton("Мелодия");
+            text.setOnClickListener(v -> transcribe(f));
+            melody.setOnClickListener(v -> analyzeMelody(f));
+            row2.addView(text, new LinearLayout.LayoutParams(0, dp(48), 1));
+            row2.addView(melody, new LinearLayout.LayoutParams(0, dp(48), 1));
+            block.addView(row2);
+
             clipsBox.addView(block);
         }
+    }
+
+    private Set<String> fileNames(List<File> files) {
+        HashSet<String> names = new HashSet<>();
+        for (File f : files) names.add(f.getName());
+        return names;
+    }
+
+    private void stitchSelected() {
+        if (stitchSelection.size() != 2) {
+            status.setText("Отметьте ровно два фрагмента флажком «Сшить»");
+            return;
+        }
+        List<File> files = getClipFiles();
+        ArrayList<File> selected = new ArrayList<>();
+        for (File f : files) if (stitchSelection.contains(f.getName())) selected.add(f);
+        if (selected.size() != 2) {
+            status.setText("Не удалось найти два выбранных файла");
+            return;
+        }
+
+        String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        File out = new File(clipsDir, "joined_" + stamp + ".wav");
+        SongMaker.Options opts = options();
+        status.setText("Сшиваю два куска и выравниваю переход…");
+        worker.execute(() -> {
+            try {
+                SongMaker.stitchTwo(selected.get(0), selected.get(1), out, opts);
+                runOnUiThread(() -> {
+                    stitchSelection.clear();
+                    status.setText("Готов новый сшитый фрагмент: " + prettyDuration(out));
+                    refreshClips();
+                    playFile(out);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Ошибка сшивания: " + e.getMessage()));
+            }
+        });
     }
 
     private void enhanceAndPlay(File source) {
         SongMaker.Options opts = options();
         StyleInterpreter.Plan plan = SongMaker.interpret(opts);
         File out = processedFileFor(source);
-        status.setText("Обрабатываю голос: очистка " + plan.cleanup + ", яркость " + plan.brightness + "…");
+        status.setText("Делаю вокал: " + plan.timbre.name().toLowerCase(Locale.ROOT) + "…");
         worker.execute(() -> {
             try {
                 SongMaker.enhanceClip(source, out, opts);
                 runOnUiThread(() -> {
-                    status.setText("Улучшенная версия готова");
+                    status.setText("Вокальная обработка готова");
                     playFile(out);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("Ошибка обработки: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void analyzeMelody(File source) {
+        SongMaker.Options opts = options();
+        status.setText("Распознаю высоту нот и тональность…");
+        worker.execute(() -> {
+            try {
+                MelodyAnalyzer.Result result = SongMaker.analyzeMelody(source, opts);
+                runOnUiThread(() -> status.setText(result.summary()));
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Ошибка анализа мелодии: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void transcribe(File source) {
+        String key = apiKeyBox.getText().toString();
+        status.setText("Распознаю речь…");
+        worker.execute(() -> {
+            try {
+                String text = OpenAiClient.transcribe(source, key);
+                runOnUiThread(() -> {
+                    transcriptBox.setText(text);
+                    status.setText("Текст распознан");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Ошибка распознавания: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void literaryEdit() {
+        hideKeyboard();
+        String key = apiKeyBox.getText().toString();
+        String text = transcriptBox.getText().toString();
+        String instruction = literaryInstructionBox.getText().toString();
+        status.setText("Литературно редактирую текст…");
+        worker.execute(() -> {
+            try {
+                String edited = OpenAiClient.literaryEdit(text, instruction, key);
+                runOnUiThread(() -> {
+                    transcriptBox.setText(edited);
+                    status.setText("Литературная редактура готова");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("Ошибка редактора: " + e.getMessage()));
             }
         });
     }
@@ -370,11 +509,16 @@ public class MainActivity extends Activity {
         SongMaker.Options opts = options();
         StyleInterpreter.Plan plan = SongMaker.interpret(opts);
         planView.setText(plan.summary());
-        status.setText("Обрабатываю голос и строю аранжировку…");
+        status.setText("Распознаю мелодию и строю под неё аранжировку…");
         worker.execute(() -> {
             try {
                 SongMaker.makeSong(clips, songFile, opts);
-                runOnUiThread(() -> status.setText("Песня готова: " + prettyDuration(songFile) + ". " + plan.summary()));
+                MelodyAnalyzer.Result melody = clips.isEmpty()
+                        ? null
+                        : SongMaker.analyzeMelody(clips.get(0), opts);
+                runOnUiThread(() -> status.setText(
+                        "Песня готова: " + prettyDuration(songFile)
+                                + (melody == null ? "" : ". " + melody.summary())));
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("Не получилось собрать: " + e.getMessage()));
             }
@@ -402,7 +546,7 @@ public class MainActivity extends Activity {
 
     private void exportSong() {
         if (!songFile.exists()) {
-            status.setText("Сначала нажмите «Сделать песню по запросу»");
+            status.setText("Сначала сделайте песню");
             return;
         }
         worker.execute(() -> {
