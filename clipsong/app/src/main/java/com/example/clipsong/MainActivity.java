@@ -20,10 +20,12 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class MainActivity extends Activity {
     private static final int REQ_MIC = 10;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private volatile Future<?> currentTask;
     private final LinkedHashSet<String> stitchSelection = new LinkedHashSet<>();
 
     private AudioRecorder recorder;
@@ -46,6 +48,7 @@ public class MainActivity extends Activity {
     private CheckBox drumsBox;
     private CheckBox bassBox;
     private CheckBox padBox;
+    private CheckBox instrumentalBox;
 
     private EditText apiKeyBox;
     private EditText transcriptBox;
@@ -87,6 +90,10 @@ public class MainActivity extends Activity {
         recordButton = bigButton("●  Записать фрагмент");
         recordButton.setOnClickListener(v -> toggleRecord());
         root.addView(recordButton);
+
+        Button stopButton = bigButton("■  STOP");
+        stopButton.setOnClickListener(v -> stopEverything());
+        root.addView(stopButton);
 
         root.addView(sectionTitle("Музыкальный запрос"));
         requestBox = new EditText(this);
@@ -138,6 +145,11 @@ public class MainActivity extends Activity {
         padBox.setText("Гармонический фон");
         padBox.setChecked(false);
         root.addView(padBox);
+
+        instrumentalBox = new CheckBox(this);
+        instrumentalBox.setText("Инструментал: убрать голос, оставить мелодию");
+        instrumentalBox.setChecked(false);
+        root.addView(instrumentalBox);
 
         bpmValue = valueLabel();
         root.addView(labelRow("Темп", bpmValue));
@@ -277,7 +289,8 @@ public class MainActivity extends Activity {
                 bassBox.isChecked(),
                 padBox.isChecked(),
                 bpmBar.getProgress(),
-                requestBox == null ? "" : requestBox.getText().toString()
+                requestBox == null ? "" : requestBox.getText().toString(),
+                instrumentalBox != null && instrumentalBox.isChecked()
         );
     }
 
@@ -415,6 +428,7 @@ public class MainActivity extends Activity {
             try {
                 SongMaker.stitchTwo(selected.get(0), selected.get(1), out, opts);
                 runOnUiThread(() -> {
+                    currentTask = null;
                     stitchSelection.clear();
                     status.setText("Готов новый сшитый фрагмент: " + prettyDuration(out));
                     refreshClips();
@@ -435,6 +449,7 @@ public class MainActivity extends Activity {
             try {
                 SongMaker.enhanceClip(source, out, opts);
                 runOnUiThread(() -> {
+                    currentTask = null;
                     status.setText("Вокальная обработка готова");
                     playFile(out);
                 });
@@ -459,6 +474,7 @@ public class MainActivity extends Activity {
             try {
                 MelodyAnalyzer.Result result = SongMaker.analyzeMelody(source, opts);
                 runOnUiThread(() -> {
+                    currentTask = null;
                     progress.dismiss();
                     status.setText(result.summary());
                     new android.app.AlertDialog.Builder(this)
@@ -488,6 +504,7 @@ public class MainActivity extends Activity {
             try {
                 String text = OpenAiClient.transcribe(source, key);
                 runOnUiThread(() -> {
+                    currentTask = null;
                     transcriptBox.setText(text);
                     status.setText("Текст распознан");
                 });
@@ -507,6 +524,7 @@ public class MainActivity extends Activity {
             try {
                 String edited = OpenAiClient.literaryEdit(text, instruction, key);
                 runOnUiThread(() -> {
+                    currentTask = null;
                     transcriptBox.setText(edited);
                     status.setText("Литературная редактура готова");
                 });
@@ -538,6 +556,7 @@ public class MainActivity extends Activity {
             try {
                 SongMaker.makeSong(clips, songFile, opts);
                 runOnUiThread(() -> {
+                    currentTask = null;
                     status.setText("Песня готова: " + prettyDuration(songFile));
                     Toast.makeText(this, "Песня готова", Toast.LENGTH_LONG).show();
                 });
@@ -608,6 +627,23 @@ public class MainActivity extends Activity {
         v.clearFocus();
     }
 
+    private void stopEverything() {
+        if (recorder != null && recorder.isRecording()) {
+            recorder.stop();
+            recordButton.setEnabled(false);
+        }
+        stopPlayer();
+
+        Future<?> task = currentTask;
+        if (task != null && !task.isDone()) {
+            task.cancel(true);
+            currentTask = null;
+        }
+
+        status.setText("Остановлено");
+        Toast.makeText(this, "Остановлено", Toast.LENGTH_SHORT).show();
+    }
+
     private void stopPlayer() {
         if (player != null) {
             try { if (player.isPlaying()) player.stop(); } catch (Exception ignored) {}
@@ -635,7 +671,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onDestroy() {
-        stopPlayer();
+        stopEverything();
         recorder.release();
         worker.shutdownNow();
         super.onDestroy();
