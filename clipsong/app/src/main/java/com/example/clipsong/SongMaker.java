@@ -49,7 +49,7 @@ final class SongMaker {
         short[] x = WavIO.readPcm16Mono(input);
         x = trimSilence(x);
         x = limitLength(x, MAX_CLIP_SECONDS * SR);
-        x = AudioProcessor.enhance(x, new AudioProcessor.Settings(plan.cleanup, plan.brightness));
+        x = AudioProcessor.enhance(x, new AudioProcessor.Settings(plan.cleanup, plan.brightness, plan.timbre, plan.reverb));
         WavIO.writePcm16Mono(output, x);
         return output;
     }
@@ -63,7 +63,7 @@ final class SongMaker {
             short[] x = WavIO.readPcm16Mono(f);
             x = trimSilence(x);
             x = limitLength(x, MAX_CLIP_SECONDS * SR);
-            x = AudioProcessor.enhance(x, new AudioProcessor.Settings(plan.cleanup, plan.brightness));
+            x = AudioProcessor.enhance(x, new AudioProcessor.Settings(plan.cleanup, plan.brightness, plan.timbre, plan.reverb));
             if (x.length > SR / 20) clips.add(x);
         }
         if (clips.isEmpty()) throw new IOException("В записях не найден слышимый звук");
@@ -78,8 +78,9 @@ final class SongMaker {
         short[] finale = layeredFinale(clips);
         short[] song = concatWithCrossfade(body, finale, (int)(0.30 * SR));
 
+        MelodyAnalyzer.Result melody = MelodyAnalyzer.analyze(song, plan.bpm);
         if (plan.drums || plan.bass || plan.pad || plan.piano || plan.guitar) {
-            song = mixAccompaniment(song, plan);
+            song = mixAccompaniment(song, plan, melody);
         }
 
         song = fadeEdges(song, (int)(0.25 * SR));
@@ -138,7 +139,7 @@ final class SongMaker {
         return doublesToShorts(mix);
     }
 
-    private static short[] mixAccompaniment(short[] voice, StyleInterpreter.Plan plan) {
+    private static short[] mixAccompaniment(short[] voice, StyleInterpreter.Plan plan, MelodyAnalyzer.Result melody) {
         double[] mix = new double[voice.length];
         double voiceGain = plan.energy > 1.1 ? 0.79 : 0.86;
         for (int i = 0; i < voice.length; i++) mix[i] = voice[i] * voiceGain;
@@ -147,7 +148,7 @@ final class SongMaker {
         int beats = (int)Math.ceil(voice.length / beat);
         Random random = new Random(260922L);
 
-        int[][] chords = chordProgression(plan.style);
+        int[][] chords = chordProgression(plan.style, melody);
         int[] roots = new int[chords.length];
         for (int i = 0; i < chords.length; i++) roots[i] = chords[i][0] - 12;
 
@@ -252,7 +253,27 @@ final class SongMaker {
         return doublesToShorts(mix);
     }
 
-    private static int[][] chordProgression(String style) {
+    private static int[][] chordProgression(String style, MelodyAnalyzer.Result melody) {
+        if (melody != null && melody.found) {
+            int root = 48 + melody.rootPc;
+            while (root > 59) root -= 12;
+            if (melody.minor) {
+                return new int[][]{
+                        triad(root, true),
+                        triad(root + 8, false),
+                        triad(root + 3, false),
+                        triad(root + 10, false)
+                };
+            } else {
+                return new int[][]{
+                        triad(root, false),
+                        triad(root + 5, false),
+                        triad(root + 7, false),
+                        triad(root, false)
+                };
+            }
+        }
+
         if ("кантри".equals(style)) {
             return new int[][]{
                     {48, 52, 55}, // C
@@ -283,6 +304,30 @@ final class SongMaker {
                 {41, 45, 48}, // F
                 {43, 47, 50}  // G
         };
+    }
+
+    private static int[] triad(int root, boolean minor) {
+        return new int[]{root, root + (minor ? 3 : 4), root + 7};
+    }
+
+    static File stitchTwo(File first, File second, File output, Options options) throws IOException {
+        if (first == null || second == null) throw new IOException("Выберите два фрагмента");
+        StyleInterpreter.Plan plan = interpret(options);
+        short[] a = trimSilence(WavIO.readPcm16Mono(first));
+        short[] b = trimSilence(WavIO.readPcm16Mono(second));
+        a = AudioProcessor.enhance(a, new AudioProcessor.Settings(plan.cleanup, plan.brightness, plan.timbre, plan.reverb));
+        b = AudioProcessor.enhance(b, new AudioProcessor.Settings(plan.cleanup, plan.brightness, plan.timbre, plan.reverb));
+        short[] joined = concatWithCrossfade(a, b, (int)(0.12 * SR));
+        joined = fadeEdges(master(joined), (int)(0.02 * SR));
+        WavIO.writePcm16Mono(output, joined);
+        return output;
+    }
+
+    static MelodyAnalyzer.Result analyzeMelody(File input, Options options) throws IOException {
+        short[] x = WavIO.readPcm16Mono(input);
+        StyleInterpreter.Plan plan = interpret(options);
+        x = AudioProcessor.enhance(trimSilence(x), new AudioProcessor.Settings(plan.cleanup, plan.brightness, plan.timbre, 0));
+        return MelodyAnalyzer.analyze(x, plan.bpm);
     }
 
     private static int beatPosition(int beatIndex, double beat, boolean swing) {
