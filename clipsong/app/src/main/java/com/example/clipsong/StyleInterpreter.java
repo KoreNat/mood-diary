@@ -19,11 +19,12 @@ final class StyleInterpreter {
         final double energy;
         final AudioProcessor.Timbre timbre;
         final int reverb;
+        final boolean instrumental;
 
         Plan(String style, int bpm, int cleanup, int brightness,
              boolean drums, boolean bass, boolean pad,
              boolean piano, boolean guitar, boolean swing, double energy,
-             AudioProcessor.Timbre timbre, int reverb) {
+             AudioProcessor.Timbre timbre, int reverb, boolean instrumental) {
             this.style = style;
             this.bpm = bpm;
             this.cleanup = cleanup;
@@ -37,6 +38,7 @@ final class StyleInterpreter {
             this.energy = energy;
             this.timbre = timbre;
             this.reverb = reverb;
+            this.instrumental = instrumental;
         }
 
         String summary() {
@@ -47,7 +49,8 @@ final class StyleInterpreter {
             if (bass) s.append(", бас");
             if (drums) s.append(", ударные");
             if (pad) s.append(", фон");
-            s.append(". Голос: очистка ").append(cleanup).append(", яркость ").append(brightness).append(", тембр ").append(timbre.name().toLowerCase(Locale.ROOT)).append(", reverb ").append(reverb);
+            if (instrumental) s.append(", без голоса — мелодия инструментом");
+            else s.append(". Голос: очистка ").append(cleanup).append(", яркость ").append(brightness).append(", тембр ").append(timbre.name().toLowerCase(Locale.ROOT)).append(", reverb ").append(reverb);
             return s.toString();
         }
     }
@@ -56,7 +59,7 @@ final class StyleInterpreter {
 
     static Plan parse(String request,
                       int baseCleanup, int baseBrightness, int baseBpm,
-                      boolean baseDrums, boolean baseBass, boolean basePad) {
+                      boolean baseDrums, boolean baseBass, boolean basePad, boolean baseInstrumental) {
         String q = request == null ? "" : request.toLowerCase(Locale.ROOT).trim();
 
         String style = "нейтральный";
@@ -72,6 +75,7 @@ final class StyleInterpreter {
         double energy = 1.0;
         AudioProcessor.Timbre timbre = AudioProcessor.Timbre.NATURAL;
         int reverb = 12;
+        boolean instrumental = baseInstrumental;
 
         if (containsAny(q, "кантри", "country", "americana", "американа")) {
             style = "кантри";
@@ -165,6 +169,9 @@ final class StyleInterpreter {
         if (containsAny(q, "много реверб", "пространствен", "hall", "больше реверб")) reverb = 42;
         else if (containsAny(q, "реверб", "reverb", "эхо")) reverb = 24;
 
+        if (containsAny(q, "без голоса", "убрать голос", "убери голос", "только мелодия", "инструментал", "instrumental", "remove vocal", "no vocal")) instrumental = true;
+        if (containsAny(q, "оставить голос", "с голосом", "keep vocal", "with vocal")) instrumental = false;
+
         if (containsAny(q, "тихо", "спокойн", "minimal", "минимал", "нежн")) energy *= 0.72;
         if (containsAny(q, "мощн", "жирн", "сильно", "big", "powerful")) energy *= 1.25;
 
@@ -173,7 +180,7 @@ final class StyleInterpreter {
         brightness = clamp(brightness, 0, 100);
         energy = Math.max(0.35, Math.min(1.45, energy));
 
-        return new Plan(style, bpm, cleanup, brightness, drums, bass, pad, piano, guitar, swing, energy, timbre, reverb);
+        return new Plan(style, bpm, cleanup, brightness, drums, bass, pad, piano, guitar, swing, energy, timbre, reverb, instrumental);
     }
 
     private static boolean containsAny(String s, String... words) {
