@@ -1,4 +1,4 @@
-package com.openai.pozvonimne;
+package com.korenat.pozvonimne;
 
 import android.Manifest;
 import android.app.Activity;
@@ -50,15 +50,21 @@ public class MainActivity extends Activity {
             "Только голосовое слово"
     };
 
+    public static final String[] VOICE_LANGUAGES = {
+            "Авто: English / Русский / Nederlands",
+            "English",
+            "Русский",
+            "Nederlands"
+    };
+
     private SharedPreferences prefs;
     private EditText callerName;
     private EditText relativeMinutes;
     private EditText emergencyWords;
     private EditText neutralWords;
-    private EditText sosPrimary;
-    private EditText sosRecipients;
     private Spinner emergencyTrigger;
     private Spinner neutralTrigger;
+    private Spinner voiceLanguage;
     private CheckBox voiceEnabled;
     private TextView dateTimeText;
     private TextView statusText;
@@ -92,18 +98,16 @@ public class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER);
         root.addView(title, matchWrap(0, dp(4)));
 
-        TextView sub = text("Имитация входящего звонка и личный SOS", 15, Color.DKGRAY);
+        TextView sub = text("Запланированный входящий звонок", 15, Color.DKGRAY);
         sub.setGravity(Gravity.CENTER);
         root.addView(sub, matchWrap(0, dp(22)));
 
         addSection(root, "Звонящий");
-
         callerName = input("Имя звонящего", true);
         callerName.setText("Анна");
         root.addView(callerName, matchWrap(0, dp(18)));
 
         addSection(root, "Когда позвонить");
-
         LinearLayout dateRow = new LinearLayout(this);
         dateRow.setOrientation(LinearLayout.HORIZONTAL);
 
@@ -144,12 +148,11 @@ public class MainActivity extends Activity {
         root.addView(scheduleRelative, matchWrap(0, dp(22)));
 
         addSection(root, "Срочный сценарий");
-
-        emergencyTrigger = spinner();
+        emergencyTrigger = spinner(TRIGGERS);
         root.addView(emergencyTrigger, matchWrap(0, dp(8)));
 
-        emergencyWords = input("Ключевые слова через запятую: hello, алло", false);
-        emergencyWords.setText("hello, алло");
+        emergencyWords = input("Ключевые слова через запятую", false);
+        emergencyWords.setText("hello, hallo, алло, хэлло");
         root.addView(emergencyWords, matchWrap(0, dp(8)));
 
         recordEmergency = new Button(this);
@@ -158,42 +161,35 @@ public class MainActivity extends Activity {
         root.addView(recordEmergency, matchWrap(0, dp(18)));
 
         addSection(root, "Нейтральный сценарий");
-
-        neutralTrigger = spinner();
+        neutralTrigger = spinner(TRIGGERS);
         root.addView(neutralTrigger, matchWrap(0, dp(8)));
 
-        neutralWords = input("Ключевые слова через запятую: hi, привет", false);
-        neutralWords.setText("hi, привет");
+        neutralWords = input("Ключевые слова через запятую", false);
+        neutralWords.setText("hi, high, хай, привет");
         root.addView(neutralWords, matchWrap(0, dp(8)));
 
         recordNeutral = new Button(this);
         recordNeutral.setText("Записать нейтральную реплику");
         recordNeutral.setOnClickListener(v -> toggleRecording("neutral"));
-        root.addView(recordNeutral, matchWrap(0, dp(10)));
+        root.addView(recordNeutral, matchWrap(0, dp(12)));
 
         voiceEnabled = new CheckBox(this);
-        voiceEnabled.setText("Слушать ключевые слова после ответа");
+        voiceEnabled.setText("Реагировать на ключевые слова после ответа");
         voiceEnabled.setChecked(true);
-        root.addView(voiceEnabled, matchWrap(0, dp(22)));
+        root.addView(voiceEnabled, matchWrap(0, dp(8)));
 
-        addSection(root, "SOS — удерживать Volume Up 3 секунды");
-
-        sosPrimary = input("Основной телефон для настоящего звонка", true);
-        root.addView(sosPrimary, matchWrap(0, dp(8)));
-
-        sosRecipients = input("Телефоны для SMS через запятую", false);
-        root.addView(sosRecipients, matchWrap(0, dp(8)));
-
-        Button sosPermissions = new Button(this);
-        sosPermissions.setText("Разрешить функции SOS");
-        sosPermissions.setOnClickListener(v -> requestSosPermissions());
-        root.addView(sosPermissions, matchWrap(0, dp(20)));
+        TextView languageLabel = text("Язык распознавания", 16, Color.BLACK);
+        root.addView(languageLabel, matchWrap(0, dp(4)));
+        voiceLanguage = spinner(VOICE_LANGUAGES);
+        root.addView(voiceLanguage, matchWrap(0, dp(22)));
 
         Button save = new Button(this);
         save.setText("Сохранить настройки");
         save.setOnClickListener(v -> {
             saveSettings();
-            Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show();
+            if (ensureVoicePermission()) {
+                Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show();
+            }
         });
         root.addView(save, matchWrap(0, dp(10)));
 
@@ -201,6 +197,7 @@ public class MainActivity extends Activity {
         test.setText("Тест: позвонить сейчас");
         test.setOnClickListener(v -> {
             saveSettings();
+            if (!ensureVoicePermission()) return;
             startCallNow();
         });
         root.addView(test, matchWrap(0, dp(10)));
@@ -210,11 +207,22 @@ public class MainActivity extends Activity {
         permissions.setOnClickListener(v -> openNeededPermissions());
         root.addView(permissions, matchWrap(0, dp(16)));
 
-        statusText = text("Настрой сценарии, затем назначь звонок.", 14, Color.DKGRAY);
+        statusText = text("Сначала проверь тестовый звонок.", 14, Color.DKGRAY);
         statusText.setGravity(Gravity.CENTER);
         root.addView(statusText);
 
         setContentView(scroll);
+    }
+
+    private Spinner spinner(String[] items) {
+        Spinner s = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                items
+        );
+        s.setAdapter(adapter);
+        return s;
     }
 
     private void addSection(LinearLayout root, String value) {
@@ -237,17 +245,6 @@ public class MainActivity extends Activity {
         e.setSingleLine(singleLine);
         if (!singleLine) e.setMinLines(2);
         return e;
-    }
-
-    private Spinner spinner() {
-        Spinner s = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(
-                this,
-                android.R.layout.simple_spinner_dropdown_item,
-                TRIGGERS
-        );
-        s.setAdapter(adapter);
-        return s;
     }
 
     private LinearLayout.LayoutParams weighted() {
@@ -319,8 +316,20 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private boolean ensureVoicePermission() {
+        if (!voiceEnabled.isChecked()) return true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 51);
+            statusText.setText("Разреши микрофон и повтори действие.");
+            return false;
+        }
+        return true;
+    }
+
     private void scheduleExact() {
         saveSettings();
+        if (!ensureVoicePermission()) return;
         if (!ensureExactAlarmPermission()) return;
         if (selected.getTimeInMillis() <= System.currentTimeMillis()) {
             statusText.setText("Выбранное время уже прошло.");
@@ -331,7 +340,9 @@ public class MainActivity extends Activity {
 
     private void scheduleRelative() {
         saveSettings();
+        if (!ensureVoicePermission()) return;
         if (!ensureExactAlarmPermission()) return;
+
         int minutes;
         try {
             minutes = Integer.parseInt(relativeMinutes.getText().toString().trim());
@@ -339,10 +350,12 @@ public class MainActivity extends Activity {
             statusText.setText("Введи число минут.");
             return;
         }
+
         if (minutes < 1 || minutes > 10080) {
             statusText.setText("Допустимо от 1 минуты до 7 дней.");
             return;
         }
+
         scheduleAlarm(System.currentTimeMillis() + minutes * 60_000L);
     }
 
@@ -383,8 +396,7 @@ public class MainActivity extends Activity {
                 .putString("emergency_words", emergencyWords.getText().toString().trim())
                 .putString("neutral_words", neutralWords.getText().toString().trim())
                 .putBoolean("voice_enabled", voiceEnabled.isChecked())
-                .putString("sos_primary", sosPrimary.getText().toString().trim())
-                .putString("sos_recipients", sosRecipients.getText().toString().trim())
+                .putInt("voice_language", voiceLanguage.getSelectedItemPosition())
                 .apply();
     }
 
@@ -392,11 +404,10 @@ public class MainActivity extends Activity {
         callerName.setText(prefs.getString("caller", "Анна"));
         emergencyTrigger.setSelection(prefs.getInt("emergency_trigger", 0));
         neutralTrigger.setSelection(prefs.getInt("neutral_trigger", 1));
-        emergencyWords.setText(prefs.getString("emergency_words", "hello, алло"));
-        neutralWords.setText(prefs.getString("neutral_words", "hi, привет"));
+        emergencyWords.setText(prefs.getString("emergency_words", "hello, hallo, алло, хэлло"));
+        neutralWords.setText(prefs.getString("neutral_words", "hi, high, хай, привет"));
         voiceEnabled.setChecked(prefs.getBoolean("voice_enabled", true));
-        sosPrimary.setText(prefs.getString("sos_primary", ""));
-        sosRecipients.setText(prefs.getString("sos_recipients", ""));
+        voiceLanguage.setSelection(prefs.getInt("voice_language", 0));
     }
 
     private File recordingFile(String kind) {
@@ -404,7 +415,8 @@ public class MainActivity extends Activity {
     }
 
     private void toggleRecording(String kind) {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 51);
             Toast.makeText(this, "Разреши микрофон и нажми запись ещё раз", Toast.LENGTH_LONG).show();
             return;
@@ -416,11 +428,9 @@ public class MainActivity extends Activity {
         }
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                recorder = new MediaRecorder(this);
-            } else {
-                recorder = new MediaRecorder();
-            }
+            recorder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    ? new MediaRecorder(this)
+                    : new MediaRecorder();
             recordingKind = kind;
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
@@ -431,7 +441,7 @@ public class MainActivity extends Activity {
             recorder.prepare();
             recorder.start();
             buttonFor(kind).setText("Стоп — сохранить запись");
-            statusText.setText("Идёт запись " + ("emergency".equals(kind) ? "срочной" : "нейтральной") + " реплики…");
+            statusText.setText("Идёт запись…");
         } catch (Exception e) {
             recorder = null;
             recordingKind = null;
@@ -445,33 +455,13 @@ public class MainActivity extends Activity {
 
     private void stopRecording() {
         if (recorder == null) return;
-        String kind = recordingKind;
-        try {
-            recorder.stop();
-        } catch (Exception ignored) { }
-        try {
-            recorder.release();
-        } catch (Exception ignored) { }
+        try { recorder.stop(); } catch (Exception ignored) { }
+        try { recorder.release(); } catch (Exception ignored) { }
         recorder = null;
         recordingKind = null;
         recordEmergency.setText("Записать срочную реплику");
         recordNeutral.setText("Записать нейтральную реплику");
         statusText.setText("Запись сохранена.");
-        Toast.makeText(this, "Запись сохранена", Toast.LENGTH_SHORT).show();
-    }
-
-    private void requestSosPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            requestPermissions(
-                    new String[]{
-                            Manifest.permission.CALL_PHONE,
-                            Manifest.permission.SEND_SMS,
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                    },
-                    70
-            );
-        }
     }
 
     private void requestNotificationPermissionIfNeeded() {
