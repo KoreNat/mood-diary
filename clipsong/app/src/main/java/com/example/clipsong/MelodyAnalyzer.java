@@ -68,6 +68,9 @@ final class MelodyAnalyzer {
         int stableCount = 0;
 
         for (int f = 0; f < frameCount; f++) {
+            if (Thread.currentThread().isInterrupted()) {
+                return new Result(false, 0, false, new int[0], collapsed);
+            }
             int start = f * HOP;
             double mean = 0.0;
             double energy = 0.0;
@@ -157,6 +160,7 @@ final class MelodyAnalyzer {
         int bestLag = -1;
 
         for (int lag = minLag; lag <= maxLag; lag++) {
+            if (Thread.currentThread().isInterrupted()) return new Pitch(0.0, 0.0);
             double xy = 0.0, xx = 0.0, yy = 0.0;
             int count = FRAME - lag;
             for (int i = 0; i < count; i++) {
