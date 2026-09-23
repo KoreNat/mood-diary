@@ -1,4 +1,4 @@
-package com.openai.pozvonimne;
+package com.korenat.pozvonimne;
 
 import android.app.Notification;
 import android.app.NotificationManager;
